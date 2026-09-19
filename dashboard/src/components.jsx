@@ -13,6 +13,9 @@ export function PanelHeader({ children }) {
 export function Masthead({ health, connected, jobId }) {
   return (
     <header className="masthead">
+      <a href="/" className="home-link" aria-label="Back to principal.dev">
+        ←
+      </a>
       <div>
         <h1>Principal</h1>
         <div className="tagline">

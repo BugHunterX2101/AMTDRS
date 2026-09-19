@@ -46,6 +46,23 @@ body {
   background: linear-gradient(180deg, #11141a, #0b0d10);
 }
 
+.masthead .home-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 15px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.masthead .home-link:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
 .masthead h1 {
   margin: 0;
   font-size: 17px;

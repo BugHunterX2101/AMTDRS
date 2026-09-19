@@ -135,6 +135,10 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
 
+    # dashboard/ builds two pages into one dist/: the landing page at
+    # dist/index.html (served at "/") and the operator console at
+    # dist/app/index.html (served at "/app/" — StaticFiles' html=True mode
+    # redirects a bare "/app" request to add the trailing slash itself).
     dist = Path(__file__).parent.parent.parent / "dashboard" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=str(dist), html=True), name="dashboard")

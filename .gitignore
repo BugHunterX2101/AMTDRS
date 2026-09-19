@@ -18,3 +18,6 @@ dashboard/dist/
 # repository is published publicly as a hackathon submission requirement, so
 # anything containing personal data is excluded explicitly rather than by luck.
 *.pdf
+
+# Local Claude Code session state, not project content.
+.claude/

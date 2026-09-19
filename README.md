@@ -11,7 +11,7 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 | **Models** | NVIDIA Nemotron 3 — Nano 30B-A3B, Super 120B-A12B, Ultra 550B-A55B |
 | **License** | Apache 2.0 |
 | **Demo video** | *(3 minutes — see [`docs/DEMO_VIDEO.md`](docs/DEMO_VIDEO.md) for the shot list)* |
-| **Live demo** | *(see [Deploying the demo](#deploying-the-hosted-demo) — the app runs with zero credentials)* |
+| **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — runs with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
 
 ---
 
@@ -163,8 +163,8 @@ Detailed, specific engineering feedback on all of the above — including the pr
 Principal runs end to end with **no Nebius account at all**, against a bundled 14-file fixture repository, using an in-process sandbox that executes real `git` and real `pytest`. This is how you verify the setup works before spending a token.
 
 ```bash
-git clone https://github.com/<your-org>/principal.git
-cd principal
+git clone https://github.com/BugHunterX2101/AMTDRS.git
+cd AMTDRS
 
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate

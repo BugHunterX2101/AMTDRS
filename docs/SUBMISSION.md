@@ -104,14 +104,14 @@ Cross-repository refactors; language coverage beyond Python and TypeScript; lear
 
 ## 5. Built with
 
-`python` · `fastapi` · `nebius-token-factory` · `nebius-sandboxes` · `nvidia-nemotron-3` · `contree-sdk` · `openai-api` · `tree-sitter` · `sqlite` · `react` · `vite` · `mcp` · `pytest` · `docker`
+`python` · `fastapi` · `nebius-token-factory` · `nebius-sandboxes` · `nvidia-nemotron-3` · `contree-sdk` · `openai-api` · `tree-sitter` · `sqlite` · `react` · `vite` · `mcp` · `pytest` · `docker` · `render`
 
 ## 6. Links
 
 | Field | Value |
 |---|---|
-| Public repository | ⟨https://github.com/YOUR-USERNAME/principal⟩ |
-| Working demo / hosted app | ⟨https://YOUR-DEPLOYMENT-URL⟩ |
+| Public repository | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) |
+| Working demo / hosted app | [amtdrs.onrender.com](https://amtdrs.onrender.com) — Render free tier, zero-credential FakeSandbox mode |
 | Demo video (YouTube, public, < 3 min) | ⟨https://youtube.com/watch?v=...⟩ |
 
 ## 7. Feedback on Nebius and NVIDIA tools
@@ -150,9 +150,9 @@ Every requirement from [the official rules](https://nebiusglobalaihackathon.devp
 
 | Requirement | Status | Where |
 |---|---|---|
-| URL to a working demo / hosted application | ⟨fill in⟩ | `Dockerfile` + [Deploying the hosted demo](../README.md#deploying-the-hosted-demo); runs with zero credentials |
+| URL to a working demo / hosted application | ✅ | [amtdrs.onrender.com](https://amtdrs.onrender.com) — verified live: `/healthz`, dashboard, `/debug/blast-radius` all responding |
 | Text description of features and functionality | ✅ | §4 above |
-| URL to a public repo (GitHub/GitLab/Bitbucket) | ⟨fill in⟩ | Must be **public** before the deadline |
+| URL to a public repo (GitHub/GitLab/Bitbucket) | ✅ | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) — public, verified |
 | Repo contains all source, assets and instructions | ✅ | Source, fixtures, prompts, benchmark, dashboard, docs |
 | Open source license file (Apache 2.0 / MIT / MPL 2.0) | ✅ | [`LICENSE`](../LICENSE) — unmodified Apache 2.0 |
 | License detectable in the repo's **About** section | ✅ | File named exactly `LICENSE`, verbatim text, `license = "Apache-2.0"` in `pyproject.toml` |

@@ -165,6 +165,27 @@ code,
   left: 0;
 }
 
+/* --------------------------------------------------------------- backdrop -- */
+
+/* Fixed behind the whole page, not just the hero: the lattice reads as one
+   continuous space the content floats in, rather than a panel that ends. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  display: block;
+}
+
+.nav,
+main,
+.footer {
+  position: relative;
+  z-index: 1;
+}
+
 /* ------------------------------------------------------------------ nav -- */
 
 .nav {
@@ -225,6 +246,66 @@ code,
   align-items: center;
   gap: var(--s3);
   flex: none;
+}
+
+/* ------------------------------------------------------------ mobile nav -- */
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  cursor: pointer;
+  padding: 0;
+}
+
+.burger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 16px;
+}
+.burger i {
+  display: block;
+  height: 1.6px;
+  width: 100%;
+  background: var(--text);
+  border-radius: 2px;
+  transition: transform 0.22s var(--ease);
+}
+.burger.is-open i:first-child {
+  transform: translateY(3.3px) rotate(45deg);
+}
+.burger.is-open i:last-child {
+  transform: translateY(-3.3px) rotate(-45deg);
+}
+
+.mobile-nav {
+  display: none;
+  flex-direction: column;
+  padding: var(--s3) var(--gutter) var(--s5);
+  border-top: 1px solid var(--line);
+  background: rgba(11, 13, 16, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: revealDown 0.22s var(--ease);
+}
+.mobile-nav a {
+  padding: 13px 2px;
+  font-size: 15px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.mobile-nav a:last-child {
+  border-bottom: 0;
+}
+.mobile-nav a:active {
+  color: var(--text);
 }
 
 /* ---------------------------------------------------------------- button -- */
@@ -1273,7 +1354,19 @@ table.compare td:nth-child(n + 2) {
   :root {
     --gutter: 16px;
   }
+  /* The inline link row collapses into the sheet below, which is why the
+     toggle and .mobile-nav turn on at exactly the same breakpoint — losing
+     the links with nothing replacing them was the bug this fixes. */
   .nav-links {
+    display: none;
+  }
+  .nav-toggle {
+    display: inline-flex;
+  }
+  .mobile-nav {
+    display: flex;
+  }
+  .nav-github span {
     display: none;
   }
   .section {

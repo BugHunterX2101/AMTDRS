@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useJobStream } from "./useJobStream";
+import { Backdrop } from "./Backdrop";
 import {
+  Economics,
   EvidenceDrawer,
   EventLog,
   ForkTree,
@@ -79,22 +81,55 @@ export default function App() {
     }
   }, []);
 
+  // POST /jobs/{id}/cancel has existed on the API since the first version and
+  // had no way to reach it from the UI. A long-running job with no stop button
+  // is the one interaction a live demo genuinely needs and cannot fake.
+  const cancel = useCallback(async () => {
+    if (!jobId) return;
+    try {
+      const res = await fetch(`/jobs/${jobId}/cancel`, { method: "POST" });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    } catch (e) {
+      setError(String(e.message || e));
+    }
+  }, [jobId]);
+
   const running = Boolean(jobId) && !terminal;
 
+  // The room takes the colour of the verdict: violet→green while work is being
+  // verified, amber for the no-PR outcome (a correct result, not an error, so
+  // it must not be red), red only for a genuine abort.
+  const mood =
+    job.state === "NoPR"
+      ? { from: "#d29922", to: "#a371f7" }
+      : job.state === "Aborted"
+      ? { from: "#f85149", to: "#d29922" }
+      : job.state === "Done"
+      ? { from: "#3fb950", to: "#76b900" }
+      : { from: "#a371f7", to: "#3fb950" };
+
   return (
-    <div className="app">
-      <Masthead health={health} connected={connected} jobId={jobId} />
+    <>
+      <Backdrop from={mood.from} to={mood.to} alpha={0.42} />
+      <div className="app">
+      <Masthead
+        health={health}
+        connected={connected}
+        jobId={jobId}
+        running={running}
+        onCancel={cancel}
+      />
 
       <div className="columns">
         {/* ------------------------------------------------------- left -- */}
         <div className="stack">
-          <section className="panel">
+          <section className="panel" data-accent="job">
             <PanelHeader>Job</PanelHeader>
             <JobForm onStart={start} running={running} />
           </section>
 
           {error && (
-            <section className="panel">
+            <section className="panel" data-accent="error">
               <PanelHeader>Error</PanelHeader>
               <div className="body">
                 <p className="empty" role="alert" style={{ color: "var(--red)" }}>{error}</p>
@@ -102,12 +137,12 @@ export default function App() {
             </section>
           )}
 
-          <section className="panel">
+          <section className="panel" data-accent="radius">
             <PanelHeader>Blast radius</PanelHeader>
             <RadiusPanel radius={job.radius} />
           </section>
 
-          <section className="panel">
+          <section className="panel" data-accent="tree">
             <PanelHeader>Sandbox fork tree</PanelHeader>
             <ForkTree nodes={tree} />
           </section>
@@ -115,7 +150,7 @@ export default function App() {
 
         {/* ----------------------------------------------------- centre -- */}
         <div className="stack">
-          <section className="panel">
+          <section className="panel" data-accent="pipeline">
             <PanelHeader>Pipeline</PanelHeader>
             <div className="body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <Pipeline state={job.state} />
@@ -132,7 +167,7 @@ export default function App() {
 
           <Outcome job={job} />
 
-          <section className="panel">
+          <section className="panel" data-accent="tasks">
             <PanelHeader>Tasks and candidates</PanelHeader>
             <TaskBoard job={job} onSelect={setSelected} />
           </section>
@@ -140,12 +175,17 @@ export default function App() {
 
         {/* ------------------------------------------------------ right -- */}
         <div className="stack">
-          <section className="panel">
+          <section className="panel" data-accent="economics">
+            <PanelHeader>Run economics</PanelHeader>
+            <Economics job={job} status={status} />
+          </section>
+
+          <section className="panel" data-accent="log">
             <PanelHeader>Event log</PanelHeader>
             <EventLog events={job.events} />
           </section>
 
-          <section className="panel">
+          <section className="panel" data-accent="guarantee">
             <PanelHeader>Guarantee</PanelHeader>
             <div className="body">
               <p className="hint">
@@ -161,6 +201,7 @@ export default function App() {
       </div>
 
       <EvidenceDrawer attempt={selected} onClose={() => setSelected(null)} />
-    </div>
+      </div>
+    </>
   );
 }

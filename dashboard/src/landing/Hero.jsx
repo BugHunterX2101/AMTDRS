@@ -1,5 +1,6 @@
 import { ArrowRight, Github, Play } from "./icons";
 import { ForkRaceViz } from "./ForkRaceViz";
+import { Backdrop } from "../Backdrop";
 
 const TRUST = [
   { k: "Track", v: "Coding & Agentic Engineering" },
@@ -11,6 +12,7 @@ const TRUST = [
 export function Hero() {
   return (
     <header className="hero" id="top">
+      <Backdrop from="#a371f7" to="#3fb950" alpha={0.55} />
       <div className="hero-glow" aria-hidden="true" />
       <div className="hero-grid" aria-hidden="true" />
       <div className="wrap hero-inner">

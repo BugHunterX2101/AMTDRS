@@ -33,9 +33,29 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* --------------------------------------------------------------- backdrop -- */
+
+/* The WebGL lattice sits behind everything, never receives a pointer event,
+   and is the only fixed-position element on the page. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  display: block;
+}
+
 /* ------------------------------------------------------------------ layout -- */
 
-.app { display: flex; flex-direction: column; min-height: 100%; }
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  position: relative;
+  z-index: 1;
+}
 
 .masthead {
   display: flex;
@@ -103,6 +123,57 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
+  position: relative;
+}
+
+/* Glass, but only barely. The lattice behind should register as depth in the
+   gutters, never as texture competing with monospace evidence inside a panel
+   — so the fill stays at 0.88 and the blur does the rest. Guarded because a
+   browser without backdrop-filter must fall back to the solid fill, not to a
+   translucent panel over a moving background. */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .panel {
+    background: rgba(18, 21, 26, 0.88);
+    backdrop-filter: blur(14px) saturate(1.1);
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  }
+}
+
+/* -- dual-tone section accents ------------------------------------------- --
+   Each panel carries a two-colour rule whose pair states what the section is
+   about, using the palette's existing semantics rather than new colours:
+   violet = the baseline everything forks from, green = verified, blue =
+   running, red = failed on merit, amber = caution, nvidia = the model tier.
+   Deliberately a 2px rule and a tinted label only — recolouring whole panels
+   would break the "one or two saturated accents" rule that keeps a dense
+   dark UI readable. */
+.panel[data-accent]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
+  opacity: 0.85;
+}
+
+.panel[data-accent="job"]      { --accent-a: var(--blue);   --accent-b: var(--violet); }
+.panel[data-accent="radius"]   { --accent-a: var(--violet); --accent-b: var(--blue); }
+.panel[data-accent="tree"]     { --accent-a: var(--violet); --accent-b: var(--green); }
+.panel[data-accent="pipeline"] { --accent-a: var(--blue);   --accent-b: var(--green); }
+.panel[data-accent="tasks"]    { --accent-a: var(--green);  --accent-b: var(--red); }
+.panel[data-accent="economics"]{ --accent-a: var(--nvidia); --accent-b: var(--blue); }
+.panel[data-accent="log"]      { --accent-a: var(--blue);   --accent-b: var(--dim); }
+.panel[data-accent="guarantee"]{ --accent-a: var(--green);  --accent-b: var(--nvidia); }
+.panel[data-accent="error"]    { --accent-a: var(--red);    --accent-b: var(--amber); }
+
+/* Tinted, not shouted: the label leans toward its section colour but stays
+   mostly muted, so eight panels read as a coherent system instead of eight
+   competing highlights. Falls back to plain muted where color-mix is absent. */
+.panel[data-accent] > header h2 {
+  color: var(--muted);
+  color: color-mix(in srgb, var(--accent-a) 58%, var(--muted));
 }
 
 .panel > header {
@@ -180,6 +251,47 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .stage.failed { color: var(--red); border-color: rgba(248, 81, 73, 0.4); }
 
 /* ------------------------------------------------------------------- stats -- */
+
+.cancel-btn {
+  width: auto;
+  flex: none;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--red);
+  border-color: rgba(248, 81, 73, 0.45);
+  background: rgba(248, 81, 73, 0.08);
+}
+.cancel-btn:hover { background: rgba(248, 81, 73, 0.16); }
+
+/* ------------------------------------------------------------- economics -- */
+
+.costbar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.costbar-free {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--nvidia), var(--green));
+}
+.costbar-spend {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+}
+
+.kv-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--muted);
+}
+.kv-line .mono { font-family: var(--mono); color: var(--text); }
 
 .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
@@ -274,6 +386,8 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .outcome.pr { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.4); }
 .outcome.nopr { background: rgba(210, 153, 34, 0.09); border: 1px solid rgba(210, 153, 34, 0.35); }
 .outcome.aborted { background: rgba(248, 81, 73, 0.09); border: 1px solid rgba(248, 81, 73, 0.35); }
+.outcome.idle { background: rgba(18, 21, 26, 0.7); border: 1px dashed var(--line); }
+.outcome.idle h2 { color: var(--muted); }
 .outcome h2 { margin: 0 0 6px; font-size: 14px; }
 .outcome p { margin: 0; color: var(--muted); line-height: 1.55; }
 .outcome a { color: var(--blue); }

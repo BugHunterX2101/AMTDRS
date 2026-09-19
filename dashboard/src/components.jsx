@@ -10,11 +10,24 @@ export function PanelHeader({ children }) {
   );
 }
 
-export function Masthead({ health, connected, jobId }) {
+export function Masthead({ health, connected, jobId, running, onCancel }) {
   return (
     <header className="masthead">
-      <a href="/" className="home-link" aria-label="Back to principal.dev">
-        ←
+      <a href="/" className="home-link" aria-label="Back to the overview page">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M19 12H5" />
+          <path d="m11 18-6-6 6-6" />
+        </svg>
       </a>
       <div>
         <h1>Principal</h1>
@@ -31,6 +44,11 @@ export function Masthead({ health, connected, jobId }) {
         <span className={`badge ${connected ? "live" : "off"}`}>
           {connected ? "streaming" : "disconnected"}
         </span>
+      )}
+      {running && (
+        <button type="button" className="cancel-btn" onClick={onCancel}>
+          Cancel run
+        </button>
       )}
     </header>
   );
@@ -136,6 +154,95 @@ function compact(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
   return String(n);
+}
+
+/* --------------------------------------------------------------- economics -- */
+
+/* The cost argument, made concrete from data the run already produces.
+   Gates 1 and 2 ("scope", "syntax") run locally and never allocate a sandbox,
+   so a candidate that dies there is genuinely free. That ratio — how much of
+   the search was paid for and how much was not — is the whole reason generous
+   fan-out is affordable, and it was previously visible nowhere in the UI.
+
+   Every number here comes from a real field: budget from GET /jobs/{id},
+   gate names from the attempt.verdict events. Nothing is modelled. */
+const FREE_GATES = new Set(["scope", "syntax"]);
+
+export function Economics({ job, status }) {
+  const attempts = Object.values(job.attempts);
+  const settled = attempts.filter((a) => a.verdict && a.verdict !== "running");
+  const free = settled.filter((a) => a.gate && FREE_GATES.has(a.gate));
+  const billed = settled.filter((a) => !a.gate || !FREE_GATES.has(a.gate));
+
+  const spent = status?.budget?.spent;
+  const limit = status?.budget?.limit;
+  const pct = spent != null && limit ? Math.min(100, (spent / limit) * 100) : null;
+
+  if (attempts.length === 0 && spent == null) {
+    return (
+      <div className="body">
+        <p className="empty">
+          Cost accrues only where a candidate reaches a sandbox. Gates 1 and 2 run
+          in-process, so most rejected candidates are discarded before anything
+          billable happens — this panel fills in once a run starts.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="body">
+      <div className="stats" style={{ marginBottom: 12 }}>
+        <Stat k="Free rejections" v={free.length} />
+        <Stat k="Reached a sandbox" v={billed.length} />
+      </div>
+
+      {settled.length > 0 && (
+        <div className="costbar" title={`${free.length} of ${settled.length} settled candidates cost nothing`}>
+          <span
+            className="costbar-free"
+            style={{ width: `${(free.length / settled.length) * 100}%` }}
+          />
+        </div>
+      )}
+
+      {settled.length > 0 && (
+        <p className="hint" style={{ marginTop: 10 }}>
+          {free.length} of {settled.length} settled candidates died at a local gate,
+          before a sandbox was allocated. That is the search being paid for in
+          microseconds instead of seconds.
+        </p>
+      )}
+
+      {pct != null && (
+        <div style={{ marginTop: 14 }}>
+          <div className="kv-line">
+            <span>Token budget</span>
+            <span className="mono">
+              {compact(spent)} / {compact(limit)}
+            </span>
+          </div>
+          <div className="costbar" style={{ marginTop: 6 }}>
+            <span className="costbar-spend" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+
+      {status?.budget?.refusals > 0 && (
+        <p className="hint" style={{ marginTop: 10, color: "var(--amber)" }}>
+          {status.budget.refusals} call(s) refused by the budget cap. The job aborts
+          rather than quietly spending past its limit.
+        </p>
+      )}
+
+      {status?.rate_limit?.remaining_tokens != null && (
+        <div className="kv-line" style={{ marginTop: 10 }}>
+          <span>Rate-limit headroom</span>
+          <span className="mono">{compact(status.rate_limit.remaining_tokens)} tok</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ radius -- */
@@ -352,6 +459,19 @@ export function Outcome({ job }) {
       <div className="outcome aborted">
         <h2>Aborted</h2>
         <p>{job.stopReason || "The job stopped before it could do any work."}</p>
+      </div>
+    );
+  }
+  if (job.state === "idle") {
+    return (
+      <div className="outcome idle">
+        <h2>Nothing has run yet</h2>
+        <p>
+          Fill in a goal and a target symbol on the left, then Start job. Every
+          candidate that gets generated either dies at a gate for free or earns its
+          way onto this card — there is no state in between where an unverified diff
+          is the answer.
+        </p>
       </div>
     );
   }

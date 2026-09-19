@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Github, Terminal } from "./icons";
 
 const LINKS = [
@@ -9,6 +10,17 @@ const LINKS = [
 ];
 
 export function Nav() {
+  const [open, setOpen] = useState(false);
+
+  // Escape closes the sheet, matching the console's evidence drawer so the two
+  // surfaces behave the same way under the keyboard.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
     <nav className="nav" aria-label="Primary">
       <div className="wrap nav-inner">
@@ -29,7 +41,7 @@ export function Nav() {
 
         <div className="nav-cta">
           <a
-            className="btn btn--sm"
+            className="btn btn--sm nav-github"
             href="https://github.com/BugHunterX2101/AMTDRS"
             target="_blank"
             rel="noreferrer"
@@ -40,8 +52,39 @@ export function Nav() {
           <a className="btn btn--sm btn--primary" href="/app">
             Open console
           </a>
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-expanded={open}
+            aria-controls="mobile-nav"
+            aria-label={open ? "Close menu" : "Open menu"}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <span className={`burger${open ? " is-open" : ""}`} aria-hidden="true">
+              <i />
+              <i />
+            </span>
+          </button>
         </div>
       </div>
+
+      {open && (
+        <div className="mobile-nav" id="mobile-nav">
+          {LINKS.map((l) => (
+            <a key={l.href} href={l.href} onClick={() => setOpen(false)}>
+              {l.label}
+            </a>
+          ))}
+          <a
+            href="https://github.com/BugHunterX2101/AMTDRS"
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setOpen(false)}
+          >
+            Source on GitHub
+          </a>
+        </div>
+      )}
     </nav>
   );
 }

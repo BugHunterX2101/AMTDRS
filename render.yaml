@@ -1,0 +1,22 @@
+# Render Blueprint. Deploys the same Dockerfile used for local `docker build`,
+# so there is no second, divergent deployment target to debug.
+#
+# Render injects its own PORT env var into the container at start; the
+# Dockerfile's `CMD principal serve --host 0.0.0.0 --port ${PORT}` picks it up
+# automatically (Render's injected value overrides the ENV PORT=8000 default),
+# so no port configuration is needed here.
+#
+# Runs with zero credentials against the bundled fixture (FakeSandbox) by
+# default. Add NEBIUS_API_KEY / NEBIUS_PROJECT_ID as secret env vars in the
+# Render dashboard to switch it to real Token Factory inference and Sandboxes.
+services:
+  - type: web
+    name: principal
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: PRINCIPAL_SLOW_MO_MS
+        value: "0"

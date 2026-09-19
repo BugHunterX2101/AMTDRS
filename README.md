@@ -310,6 +310,12 @@ With credentials, pass them through:
 docker run -p 8000:8000 -e NEBIUS_API_KEY=... -e NEBIUS_PROJECT_ID=... principal
 ```
 
+**Live free-tier deploy:** a `render.yaml` Blueprint is included, so Render.com
+builds the same Dockerfile with no credit card required. See
+[`docs/DEPLOY.md`](docs/DEPLOY.md) for the two-minute click-through, including
+why Cloud Run and Hugging Face Spaces were tried first and ruled out for a
+zero-cost path.
+
 ## Repository layout
 
 ```

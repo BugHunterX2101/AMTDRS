@@ -7,6 +7,7 @@ import {
   JobForm,
   Masthead,
   Outcome,
+  PanelHeader,
   Pipeline,
   RadiusPanel,
   Stats,
@@ -88,26 +89,26 @@ export default function App() {
         {/* ------------------------------------------------------- left -- */}
         <div className="stack">
           <section className="panel">
-            <header>Job</header>
+            <PanelHeader>Job</PanelHeader>
             <JobForm onStart={start} running={running} />
           </section>
 
           {error && (
             <section className="panel">
-              <header>Error</header>
+              <PanelHeader>Error</PanelHeader>
               <div className="body">
-                <p className="empty" style={{ color: "var(--red)" }}>{error}</p>
+                <p className="empty" role="alert" style={{ color: "var(--red)" }}>{error}</p>
               </div>
             </section>
           )}
 
           <section className="panel">
-            <header>Blast radius</header>
+            <PanelHeader>Blast radius</PanelHeader>
             <RadiusPanel radius={job.radius} />
           </section>
 
           <section className="panel">
-            <header>Sandbox fork tree</header>
+            <PanelHeader>Sandbox fork tree</PanelHeader>
             <ForkTree nodes={tree} />
           </section>
         </div>
@@ -115,7 +116,7 @@ export default function App() {
         {/* ----------------------------------------------------- centre -- */}
         <div className="stack">
           <section className="panel">
-            <header>Pipeline</header>
+            <PanelHeader>Pipeline</PanelHeader>
             <div className="body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <Pipeline state={job.state} />
               <Stats job={job} status={status} />
@@ -132,7 +133,7 @@ export default function App() {
           <Outcome job={job} />
 
           <section className="panel">
-            <header>Tasks and candidates</header>
+            <PanelHeader>Tasks and candidates</PanelHeader>
             <TaskBoard job={job} onSelect={setSelected} />
           </section>
         </div>
@@ -140,12 +141,12 @@ export default function App() {
         {/* ------------------------------------------------------ right -- */}
         <div className="stack">
           <section className="panel">
-            <header>Event log</header>
+            <PanelHeader>Event log</PanelHeader>
             <EventLog events={job.events} />
           </section>
 
           <section className="panel">
-            <header>Guarantee</header>
+            <PanelHeader>Guarantee</PanelHeader>
             <div className="body">
               <p className="hint">
                 No model sits in the accept path. The decision to keep a patch is a

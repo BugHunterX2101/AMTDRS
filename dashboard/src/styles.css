@@ -91,13 +91,18 @@ body {
 .panel > header {
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.panel > header h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
 }
 
 .panel > .body { padding: 14px; }
@@ -190,6 +195,10 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
+@media (prefers-reduced-motion: reduce) {
+  .dot.running { animation: none; }
+}
+
 .candidates { display: flex; gap: 8px; padding: 10px 11px; flex-wrap: wrap; }
 
 .candidate {
@@ -203,6 +212,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   transition: border-color 0.15s, opacity 0.3s;
 }
 .candidate:hover { border-color: var(--blue); }
+.candidate:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .candidate .n { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .candidate .verdict { font-family: var(--mono); font-size: 12px; margin-top: 3px; }
 .candidate .gate { font-size: 11px; color: var(--dim); margin-top: 2px; }
@@ -247,7 +257,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .outcome.pr { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.4); }
 .outcome.nopr { background: rgba(210, 153, 34, 0.09); border: 1px solid rgba(210, 153, 34, 0.35); }
 .outcome.aborted { background: rgba(248, 81, 73, 0.09); border: 1px solid rgba(248, 81, 73, 0.35); }
-.outcome h3 { margin: 0 0 6px; font-size: 14px; }
+.outcome h2 { margin: 0 0 6px; font-size: 14px; }
 .outcome p { margin: 0; color: var(--muted); line-height: 1.55; }
 .outcome a { color: var(--blue); }
 
@@ -280,6 +290,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   display: flex;
   flex-direction: column;
 }
+.drawer:focus { outline: none; }
 
 .drawer > header {
   display: flex;

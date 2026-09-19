@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /* ------------------------------------------------------------------ header -- */
+
+export function PanelHeader({ children }) {
+  return (
+    <header>
+      <h2>{children}</h2>
+    </header>
+  );
+}
 
 export function Masthead({ health, connected, jobId }) {
   return (
@@ -206,9 +214,13 @@ export function TaskBoard({ job, onSelect }) {
               if (!a) return null;
               const settled = t.state === "verified" || t.state === "discarded";
               const lost = settled && t.winner && t.winner !== a.id;
+              const label = `${a.kind === "repairer" ? "repair" : `candidate ${a.n}`}, verdict ${a.verdict}`;
               return (
                 <div
                   key={aid}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={label}
                   className={[
                     "candidate",
                     verdictClass(a.verdict),
@@ -216,6 +228,12 @@ export function TaskBoard({ job, onSelect }) {
                     a.kind === "repairer" ? "repair" : "",
                   ].join(" ")}
                   onClick={() => onSelect(a)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(a);
+                    }
+                  }}
                 >
                   <div className="n">
                     {a.kind === "repairer" ? "repair" : `candidate ${a.n}`}
@@ -300,7 +318,7 @@ export function Outcome({ job }) {
   if (job.prUrl) {
     return (
       <div className="outcome pr">
-        <h3>Draft pull request opened</h3>
+        <h2>Draft pull request opened</h2>
         <p>
           Every gate passed, including the full suite with all patches applied together.
           <br />
@@ -314,7 +332,7 @@ export function Outcome({ job }) {
   if (job.state === "NoPR") {
     return (
       <div className="outcome nopr">
-        <h3>No pull request — and that is the correct outcome</h3>
+        <h2>No pull request — and that is the correct outcome</h2>
         <p>
           {job.stopReason || "The change could not be verified."}
           <br />
@@ -329,7 +347,7 @@ export function Outcome({ job }) {
   if (job.state === "Aborted") {
     return (
       <div className="outcome aborted">
-        <h3>Aborted</h3>
+        <h2>Aborted</h2>
         <p>{job.stopReason || "The job stopped before it could do any work."}</p>
       </div>
     );
@@ -358,6 +376,7 @@ export function EventLog({ events }) {
 
 export function EvidenceDrawer({ attempt, onClose }) {
   const [artifact, setArtifact] = useState(null);
+  const asideRef = useRef(null);
 
   useEffect(() => {
     setArtifact(null);
@@ -378,14 +397,27 @@ export function EvidenceDrawer({ attempt, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Move focus into the drawer when it opens so keyboard/screen-reader users
+  // land on the new content instead of a stale focus target behind the scrim.
+  useEffect(() => {
+    if (attempt) asideRef.current?.focus();
+  }, [attempt]);
+
   if (!attempt) return null;
 
   return (
     <>
-      <div className="drawer-scrim" onClick={onClose} />
-      <aside className="drawer">
+      <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-heading"
+        tabIndex={-1}
+        ref={asideRef}
+      >
         <header>
-          <h2>
+          <h2 id="drawer-heading">
             {attempt.kind === "repairer" ? "repair" : `candidate ${attempt.n}`} · {attempt.verdict}
           </h2>
           <div style={{ flex: 1 }} />

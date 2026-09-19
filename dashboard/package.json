@@ -1,0 +1,21 @@
+{
+  "name": "principal-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Live view of a Principal run: the sandbox fork tree, per-candidate gate progress, and the evidence behind every verdict.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

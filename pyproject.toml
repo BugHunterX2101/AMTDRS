@@ -1,0 +1,131 @@
+[project]
+name = "principal"
+version = "0.1.0"
+description = "Principal: an autonomous technical debt remediation swarm. Verification-gated parallel refactoring on Nebius Token Factory."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "openai>=1.40",
+    "contree-sdk>=0.3.6",
+    "tree-sitter>=0.24",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-typescript>=0.23",
+    "unidiff>=0.7",
+    "python-ulid>=2.7",
+    "sse-starlette>=2.1",
+    "numpy>=1.26",
+    "fastmcp>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "import-linter>=2.0",
+]
+
+[project.scripts]
+principal = "principal.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["principal*", "mcp_code_graph*"]
+
+[tool.setuptools.package-data]
+"principal.graph.languages" = ["*.scm"]
+"principal.agents.prompts" = ["*.md"]
+"principal.db" = ["*.sql"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S"]
+ignore = [
+    "S101",  # assert: this codebase asserts invariants deliberately, including in tests
+    "E501",  # line length is governed by the formatter, not the linter
+    "B008",  # function call in a default argument is how FastAPI dependencies are declared
+    # `class Tier(str, Enum)` is intentional throughout. Every one of these enums
+    # is written to SQLite, serialised into an SSE payload and compared against a
+    # string from a model response. StrEnum would be the modern spelling but it
+    # changes `str(x)` from "Tier.NANO" to "nano", and several stored values and
+    # recorded traces depend on the current behaviour.
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+"spikes/**" = ["S", "B"]
+"tests/fixtures/mini_repo/**" = ["ALL"]
+# Every flagged query builds only a run of `?` placeholders from len(), never
+# from user data; the values themselves are always bound parameters. Verified
+# individually rather than waved through — the pattern is
+# `marks = ",".join("?" * len(ids))`, which cannot carry an injection.
+"principal/db/store.py" = ["S608"]
+"principal/graph/build.py" = ["S608"]
+"principal/graph/radius.py" = ["S608"]
+"principal/orchestrator/job.py" = ["S608"]
+# These paths are inside the sandbox — a Linux microVM with a single process and
+# a fresh filesystem per fork — not on the host. /tmp there has none of the
+# shared-temp-directory risks this rule is about.
+"principal/sandbox/scripts.py" = ["S108"]
+"principal/sandbox/fake.py" = ["S108"]
+# Jitter for retry backoff. Not a security context, and a CSPRNG here would cost
+# entropy for no benefit.
+"principal/models/client.py" = ["S311"]
+# ASYNC109: `timeout` is part of this function's public contract because callers
+# set per-request deadlines; it is passed to httpx rather than implemented with
+# asyncio.timeout.
+"principal/models/registry.py" = ["ASYNC109"]
+# ASYNC240: a one-off existence check on a local snapshot directory during
+# setup. Moving it to a thread would add a task switch to save nothing.
+"principal/sandbox/baseline.py" = ["ASYNC240"]
+# Same reasoning: one-off local directory setup (mkdir, rmtree) in a CLI
+# script's async main, not on any hot path.
+"bench/harness.py" = ["ASYNC240"]
+
+# Section 2 of the specification: dependencies point downward only.
+# `agents` cannot reach `sandbox`; `gates` cannot reach `models`.
+[tool.importlinter]
+root_package = "principal"
+
+[[tool.importlinter.contracts]]
+name = "Agents never touch the sandbox"
+type = "forbidden"
+source_modules = ["principal.agents"]
+forbidden_modules = ["principal.sandbox", "principal.publish"]
+
+[[tool.importlinter.contracts]]
+name = "No model in the accept path"
+type = "forbidden"
+source_modules = ["principal.gates"]
+forbidden_modules = ["principal.models", "principal.agents"]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "principal.api",
+    "principal.orchestrator",
+    "principal.gates | principal.agents | principal.publish",
+    "principal.sandbox | principal.models | principal.graph",
+    "principal.db",
+    "principal.config",
+]

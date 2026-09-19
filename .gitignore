@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+*.db-wal
+*.db-shm
+runs/
+snapshots/
+.model_cache/
+node_modules/
+dashboard/dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Personal documents that happen to live in this working directory. This
+# repository is published publicly as a hackathon submission requirement, so
+# anything containing personal data is excluded explicitly rather than by luck.
+*.pdf

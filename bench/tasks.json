@@ -1,0 +1,14 @@
+{
+  "description": "Benchmark tasks. Each entry is one full job: a repository, a commit, a target symbol and a goal in English. The planner (Nemotron 3 Ultra) decomposes the goal into the actual task list at run time, the same way it would for a real job — the benchmark does not hand-author sub-tasks, because doing so would be testing a different pipeline than the one being shipped.",
+  "tasks": [
+    {
+      "id": "mini_repo-ttl-keyword-only",
+      "repo_url": "tests/fixtures/mini_repo",
+      "commit_sha": "deadbeef",
+      "target_fqn": "src.auth.session.create",
+      "goal": "Make the ttl parameter of create() keyword-only, and update every call site across the codebase to pass it by keyword.",
+      "notes": "The bundled fixture. 7 files in the true blast radius, 9 call sites, 1 aliased import, 1 dynamic-dispatch file, 2 genuinely unresolvable calls. Every candidate that changes only the signature and forgets a call site should be caught by gate 3."
+    }
+  ],
+  "adding_tasks": "Point repo_url at any git URL or local path with a green test suite at commit_sha, name a target_fqn Nemotron should refactor, and describe the goal in one sentence the way an engineer would in a PR description. Wider benchmarks should mix task shapes: a pure rename, a signature change, a symbol removal with declared_removals, and a change that legitimately should be rejected (to test that NoPR fires correctly)."
+}

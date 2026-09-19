@@ -1,0 +1,37 @@
+Principal — Autonomous Technical Debt Remediation Swarm
+Copyright 2026 Principal contributors
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+This product was built for the Nebius x NVIDIA Global AI Hackathon 2026
+(Coding and Agentic Engineering track).
+
+NVIDIA, Nemotron, and Jetson are trademarks of NVIDIA Corporation. Nebius,
+Nebius Token Factory, and Nebius AI Cloud are trademarks of Nebius. This
+project is not affiliated with, endorsed by, or sponsored by NVIDIA
+Corporation or Nebius; their marks are used here only to identify the
+platforms and models the software runs against, as permitted by Section 6 of
+the Apache License.
+
+This product includes third-party open source software, each under its own
+license. The full dependency set is declared in pyproject.toml and
+dashboard/package.json. Notable components:
+
+  - contree-sdk           Apache-2.0   Nebius Token Factory Sandboxes client
+  - openai (Python SDK)   Apache-2.0   OpenAI-compatible inference client
+  - fastapi / starlette   MIT
+  - uvicorn               BSD-3-Clause
+  - pydantic              MIT
+  - httpx                 BSD-3-Clause
+  - tree-sitter           MIT          incremental parsers
+  - tree-sitter-python    MIT
+  - tree-sitter-typescript MIT
+  - unidiff               MIT
+  - sse-starlette         BSD-3-Clause
+  - numpy                 BSD-3-Clause
+  - fastmcp               Apache-2.0
+  - pytest                MIT
+  - ruff                  MIT
+  - import-linter         BSD-2-Clause
+  - React                 MIT
+  - Vite                  MIT

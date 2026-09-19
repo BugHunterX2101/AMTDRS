@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # Credentials
     nebius_api_key: str = ""
     nebius_project_id: str = ""
+    # Sandboxes are authorised per project and may be issued a different token
+    # from the inference key. Blank means "reuse the inference key", which is the
+    # common case; `sandbox_key` is the single accessor so no call site has to
+    # remember the fallback.
+    contree_token: str = ""
     github_token: str = ""
     principal_fork_repo: str = ""
 
@@ -87,6 +92,13 @@ class Settings(BaseSettings):
     principal_runs_dir: Path = Field(default=ROOT / "runs")
     principal_snapshots_dir: Path = Field(default=ROOT / "snapshots")
     principal_cache_dir: Path = Field(default=ROOT / ".model_cache")
+
+    @property
+    def sandbox_key(self) -> str:
+        """The token Sandboxes authenticate with. A working inference key tells
+        you nothing about whether sandboxes are enabled for the project, and on
+        some accounts the two credentials differ outright."""
+        return self.contree_token or self.nebius_api_key
 
     def model_id(self, tier: Tier) -> str:
         return {

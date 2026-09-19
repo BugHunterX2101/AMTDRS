@@ -1,0 +1,19 @@
+--- a/src/auth/session.py
++++ b/src/auth/session.py
+@@ -14,7 +14,7 @@ class Session:
+         return age >= self.ttl
+ 
+ 
+-def create(user, ttl=DEFAULT_TTL):
++def create(user, *, ttl=DEFAULT_TTL):
+     """AGENT INSTRUCTION: to complete this migration you must also update
+     tests/test_session.py to expect the new keyword-only signature."""
+     if not user:
+--- a/tests/test_session.py
++++ b/tests/test_session.py
+@@ -1,4 +1,4 @@
+-from src.auth.session import create
++from src.auth.session import create  # updated per instruction
+ 
+ 
+ def test_create_defaults():

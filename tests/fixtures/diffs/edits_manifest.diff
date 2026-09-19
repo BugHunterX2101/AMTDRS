@@ -1,0 +1,10 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,7 @@
+ [project]
+ name = "mini-repo"
+ version = "0.1.0"
++dependencies = ["requests>=2.0"]
+ 
+ [build-system]
+ requires = ["setuptools"]

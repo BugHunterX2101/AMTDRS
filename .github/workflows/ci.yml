@@ -68,6 +68,22 @@ jobs:
       - name: Architecture contracts
         run: lint-imports
 
+      # gates/ and publish/ are where a swallowed exception turns into a merged
+      # bad change: a gate that cannot decide has not passed, and must return a
+      # red verdict rather than fall through. Crude check, important rule, and
+      # both packages are small enough that holding it costs nothing.
+      - name: No swallowed exceptions in the accept path
+        run: |
+          if grep -rnE '^\s*except\s*:|^\s*except Exception\s*:' principal/gates principal/publish --include='*.py'; then
+            echo "::error::bare or unqualified except in the accept path"
+            exit 1
+          fi
+          if grep -rnA1 -E '^\s*except\b' principal/gates principal/publish --include='*.py' | grep -qE '^\S+[-:][0-9]+-\s*pass\s*$'; then
+            echo "::error::an exception is silently swallowed in the accept path"
+            exit 1
+          fi
+          echo "accept path: no swallowed exceptions"
+
   compliance:
     name: submission compliance
     runs-on: ubuntu-latest

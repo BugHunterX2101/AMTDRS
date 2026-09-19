@@ -1,0 +1,22 @@
+--- a/src/api/login.py
++++ b/src/api/login.py
+@@ -2,7 +2,7 @@ from src.auth.session import create
+ 
+ 
+ def login(user):
+-    return create(user, 3600)
++    return create(user, ttl=3600)
+ 
+ 
+ def login_short(user):
+--- a/src/api/refresh.py
++++ b/src/api/refresh.py
+@@ -2,7 +2,7 @@ from src.auth import session
+ 
+ 
+ def refresh(user, ttl):
+-    return session.create(user, ttl)
++    return session.create(user, ttl=ttl)
+ 
+ 
+ def refresh_twice(user):

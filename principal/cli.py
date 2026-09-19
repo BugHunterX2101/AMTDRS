@@ -110,7 +110,7 @@ async def _doctor(*, as_json: bool) -> int:
         record("nebius_project_id", _WARN,
                "unset — Sandboxes are authorised per project, so inference working tells you "
                "nothing about sandbox access. Set NEBIUS_PROJECT_ID to enable real runs.")
-    elif settings.nebius_api_key:
+    elif settings.sandbox_key:
         await _check_sandbox(record, settings)
 
     if not settings.github_token or not settings.principal_fork_repo:
@@ -190,7 +190,7 @@ async def _check_sandbox(record, settings: Settings) -> None:
         from principal.sandbox.client import ContreeSandbox
 
         sandbox = ContreeSandbox(
-            api_key=settings.nebius_api_key, project_id=settings.nebius_project_id,
+            api_key=settings.sandbox_key, project_id=settings.nebius_project_id,
             base_url=settings.principal_sandbox_base, max_inflight=settings.max_inflight_ops,
         )
         image = await sandbox.use(settings.principal_base_image)
@@ -284,7 +284,7 @@ def _make_sandbox(settings: Settings, *, force_fake: bool):
         from principal.sandbox.client import ContreeSandbox
 
         return ContreeSandbox(
-            api_key=settings.nebius_api_key, project_id=settings.nebius_project_id,
+            api_key=settings.sandbox_key, project_id=settings.nebius_project_id,
             base_url=settings.principal_sandbox_base, max_inflight=settings.max_inflight_ops,
         )
     from principal.sandbox.fake import FakeSandbox

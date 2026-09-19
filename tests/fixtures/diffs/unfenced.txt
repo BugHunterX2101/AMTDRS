@@ -1,0 +1,13 @@
+Sure! Here is the patch you asked for:
+
+--- a/src/auth/session.py
++++ b/src/auth/session.py
+@@ -14,7 +14,7 @@ class Session:
+         return age >= self.ttl
+ 
+ 
+-def create(user, ttl=DEFAULT_TTL):
++def create(user, *, ttl=DEFAULT_TTL):
+     """Positional-ttl signature. Every consumer passes ttl positionally, which is
+     the reason this migration exists and the reason it touches so many files."""
+     if not user:

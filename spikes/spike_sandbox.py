@@ -41,7 +41,7 @@ async def main() -> int:
     print(f"endpoint: {settings.principal_sandbox_base}\n")
 
     sandbox = ContreeSandbox(
-        api_key=settings.nebius_api_key, project_id=settings.nebius_project_id,
+        api_key=settings.sandbox_key, project_id=settings.nebius_project_id,
         base_url=settings.principal_sandbox_base, max_inflight=settings.max_inflight_ops,
     )
 

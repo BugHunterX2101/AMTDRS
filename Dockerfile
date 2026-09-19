@@ -27,9 +27,18 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Dependency layer first, so source edits do not invalidate the install.
+# Dependency layer first, so source edits do not invalidate the install. Both
+# packages' __init__.py must exist before `pip install -e`: setuptools'
+# package-finder (packages.find, include = ["principal*", "mcp_code_graph*"])
+# walks the tree at install time to build the editable finder's package map,
+# and a package that does not exist yet is a package it never learns to map —
+# copying the rest of the source afterward does not retroactively register it.
+# This was found the hard way: the image built and served cleanly, and only
+# the MCP mount silently failed at startup with "No module named
+# 'mcp_code_graph'", logged as a warning rather than a crash.
 COPY pyproject.toml README.md ./
 COPY principal/__init__.py principal/__init__.py
+COPY mcp_code_graph/__init__.py mcp_code_graph/__init__.py
 RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY principal/ principal/

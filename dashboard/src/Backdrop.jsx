@@ -94,8 +94,10 @@ void main() {
     col += tint * (node * pulse + edge) * fade;
   }
 
-  // Vignette: keep the middle of the screen calm, because that is exactly
-  // where the dense panels and the monospace evidence live.
+  // Vignette: fall off towards the edges of the frame, so the lattice reads as
+  // depth rather than as wallpaper. The panels sit on their own opaque
+  // surfaces, so what stays legible under them is a question of panel
+  // background, not of how bright the layer behind them is.
   col *= smoothstep(1.3, 0.12, length(uv));
 
   // Alpha tracks luminance so dark regions stay genuinely transparent and

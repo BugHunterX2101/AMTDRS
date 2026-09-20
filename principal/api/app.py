@@ -20,14 +20,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from principal.api.routes import router
 from principal.config import Protocol, Settings, Tier, get_settings
 from principal.db.events import EventLog
 from principal.db.store import Store
+from principal.errors import Code, PrincipalError
 from principal.models.cache import DiskCache
 from principal.models.client import ModelClient
 from principal.sandbox.client import SandboxClient
@@ -44,11 +46,9 @@ class AppState:
     background_tasks: set
 
 
-async def _startup(app: FastAPI) -> None:
-    settings = get_settings()
+async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
     logger.info("principal starting up")
 
-    store = Store(settings.principal_db)
     events = EventLog(store, settings.principal_runs_dir, slow_mo_ms=settings.principal_slow_mo_ms)
     events.bind_loop()
 
@@ -113,27 +113,75 @@ async def _startup(app: FastAPI) -> None:
     app.state.models = models
     app.state.background_tasks = set()
 
+
+_STATUS_BY_CODE: dict[Code, int] = {
+    Code.TARGET_NOT_FOUND: 404,
+    Code.SANDBOX_FORBIDDEN: 403,
+    Code.RADIUS_TOO_LARGE: 422,
+    Code.BUDGET_EXHAUSTED: 429,
+    Code.MODEL_RATE_LIMITED: 429,
+}
+
+
+async def _principal_error_handler(request: Request, exc: PrincipalError) -> JSONResponse:
+    """The one place a `PrincipalError` that reaches the HTTP layer without a
+    more specific handler gets turned into the documented error envelope
+    (SPEC.md, "Error envelope") instead of an unstructured 500. `/debug/blast-
+    radius` is the route this matters for most: `RADIUS_TOO_LARGE` is the whole
+    point of that endpoint on a repository whose radius is too wide, and without
+    this it surfaced as a bare traceback rather than the answer the endpoint
+    exists to give."""
+    del request
+    return JSONResponse(status_code=_STATUS_BY_CODE.get(exc.code, 400), content=exc.envelope())
+
+
+def _build_mcp_app(store: Store):
+    """The code-graph MCP server as an ASGI app, or None if it cannot be built.
+
+    Returning the ASGI app rather than the FastMCP object is the whole point: an
+    object held on `app.state` is not reachable by any MCP client, which is what
+    "mounted by `principal serve`" has to mean. Mounting is not enough on its own
+    either — FastMCP's session manager starts in *its* lifespan, and a mounted
+    sub-app's lifespan is never run by the parent, so `create_app` chains it
+    explicitly below.
+    """
     try:
         from mcp_code_graph.server import build_server
 
-        app.state.mcp_server = build_server(store)
+        return build_server(store).http_app(path="/")
     except Exception as exc:  # noqa: BLE001
         logger.warning("code-graph MCP server not mounted: %s", exc)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await _startup(app)
-    yield
-    app.state.store.close()
+        return None
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+    store = Store(settings.principal_db)
+    mcp_app = _build_mcp_app(store)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await _startup(app, settings, store)
+        try:
+            if mcp_app is None:
+                yield
+            else:
+                async with mcp_app.router.lifespan_context(mcp_app):
+                    yield
+        finally:
+            store.close()
+
     app = FastAPI(title="Principal", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
     )
+    app.add_exception_handler(PrincipalError, _principal_error_handler)
     app.include_router(router)
+
+    # Order matters: Starlette matches mounts in registration order, and the
+    # dashboard's "/" mount below would otherwise swallow every path.
+    if mcp_app is not None:
+        app.mount("/mcp", mcp_app, name="code-graph-mcp")
 
     # dashboard/ builds two pages into one dist/: the landing page at
     # dist/index.html (served at "/") and the operator console at

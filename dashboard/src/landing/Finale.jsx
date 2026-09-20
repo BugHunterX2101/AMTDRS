@@ -15,12 +15,15 @@ export function Finale() {
             Send it a goal and a target symbol. See what comes back.
           </h2>
           <p>
-            The hosted console needs no sign-up and no credentials — it runs a real
-            job against a bundled fixture repository in front of you, with the
-            fork tree, every candidate's verdict, and the full diff one click away.
+            The hosted console needs no sign-up and no credentials. It runs a real
+            baseline, a real code graph and a real blast radius against a bundled
+            fixture repository in front of you — the deterministic half, the half
+            a model cannot fake. Add your own Token Factory key and the same
+            console shows the fork tree, every candidate's verdict and the full
+            diff one click away.
           </p>
           <div className="hero-actions">
-            <a className="btn btn--primary btn--lg" href="/app">
+            <a className="btn btn--primary btn--lg" href="/app/">
               Open the console
               <ArrowRight aria-hidden="true" />
             </a>

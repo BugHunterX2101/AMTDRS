@@ -31,7 +31,7 @@ from principal.orchestrator.ordering import order_waves
 from principal.orchestrator.scheduler import TaskContext, WaveRunner
 from principal.publish.github import open_pr
 from principal.publish.prbody import render_fallback_body
-from principal.sandbox.baseline import build_baseline, ensure_snapshot
+from principal.sandbox.baseline import build_baseline, clone_source, ensure_snapshot
 from principal.sandbox.client import SandboxClient
 from principal.sandbox.runner import run_integration
 
@@ -82,7 +82,7 @@ async def _ingest_and_baseline(job_id: str, store: Store, events: EventLog, sand
     with events.transaction(job_id, "job.state", {"state": "Ingesting"}):
         store.update_job(job_id, state="Ingesting")
 
-    await ensure_snapshot(job.repo_url, job.commit_sha, settings.principal_snapshots_dir)
+    snapshot = await ensure_snapshot(job.repo_url, job.commit_sha, settings.principal_snapshots_dir)
 
     with events.transaction(job_id, "job.state", {"state": "Baselining"}):
         store.update_job(job_id, state="Baselining")
@@ -92,6 +92,7 @@ async def _ingest_and_baseline(job_id: str, store: Store, events: EventLog, sand
 
     baseline = await build_baseline(
         sandbox, base_image=settings.principal_base_image, repo_url=job.repo_url,
+        clone_url=clone_source(job.repo_url, snapshot),
         commit_sha=job.commit_sha, timeout_s=max(900, settings.sandbox_timeout_s * 2),
         on_operation=on_op,
     )
@@ -229,7 +230,13 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         store.update_job(job_id, state="Integrating")
 
     diff_by_file = _load_winning_diffs(store, settings, job_id, verified)
-    diffs = [diff_by_file[t.target_file] for t in verified if t.target_file in diff_by_file]
+    # `applied` is kept strictly parallel to `diffs`. A verified task whose diff
+    # artifact could not be read is skipped from both, so the conflict index the
+    # sandbox reports — which indexes the diffs it was handed — still names the
+    # right task. Deriving one list from `verified` and indexing into the other
+    # would drop an unrelated task the moment those two lengths diverge.
+    applied = [t for t in verified if t.target_file in diff_by_file]
+    diffs = [diff_by_file[t.target_file] for t in applied]
 
     assert job.baseline_image is not None
     c0_image = await sandbox.from_uuid(job.baseline_image)
@@ -245,11 +252,12 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         events.emit(job_id, "integration.conflict", {"dropped_index": run.conflict_index})
         # Bounded: retry exactly once, dropping the later task by seq. A second
         # failure ends the job in NoPR rather than looping.
-        if 0 <= run.conflict_index < len(verified):
-            dropped = verified.pop(run.conflict_index)
+        if 0 <= run.conflict_index < len(applied):
+            dropped = applied.pop(run.conflict_index)
+            verified = [t for t in verified if t.id != dropped.id]
             store.update_task(dropped.id, state="discarded",
                                discard_reason="dropped at integration: conflicted with another patch")
-            diffs = [diff_by_file[t.target_file] for t in verified if t.target_file in diff_by_file]
+            diffs = [diff_by_file[t.target_file] for t in applied]
             run = await run_integration(
                 sandbox, c0_image, diffs, timeout_s=max(900, settings.sandbox_timeout_s * 2),
                 on_operation=on_op,

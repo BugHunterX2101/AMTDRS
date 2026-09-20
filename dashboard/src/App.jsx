@@ -16,8 +16,16 @@ import {
   TaskBoard,
 } from "./components";
 
+// The run id lives in the URL, not only in component state. Without this a
+// reload — or a laptop that slept long enough for the tab to be discarded —
+// drops you back on an empty form with a job still executing on the server and
+// no way to find it again, and a run cannot be linked to at all. The event log
+// is append-only and every endpoint is keyed by job id, so opening ?job=<id>
+// reconstructs a past run exactly as it happened, live or long finished.
+const jobIdFromUrl = () => new URLSearchParams(window.location.search).get("job");
+
 export default function App() {
-  const [jobId, setJobId] = useState(null);
+  const [jobId, setJobId] = useState(jobIdFromUrl);
   const [health, setHealth] = useState(null);
   const [status, setStatus] = useState(null);
   const [tree, setTree] = useState([]);
@@ -26,6 +34,22 @@ export default function App() {
 
   const { job, connected } = useJobStream(jobId);
   const terminal = ["Done", "NoPR", "Aborted"].includes(job.state);
+
+  // Keep the address bar in step, and follow Back/Forward. replaceState rather
+  // than pushState on start: a new run replaces the view it was launched from,
+  // so Back should leave the console rather than step through every job.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (jobId) url.searchParams.set("job", jobId);
+    else url.searchParams.delete("job");
+    if (url.href !== window.location.href) window.history.replaceState({}, "", url);
+  }, [jobId]);
+
+  useEffect(() => {
+    const onPop = () => setJobId(jobIdFromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
     fetch("/healthz")
@@ -40,10 +64,22 @@ export default function App() {
   useEffect(() => {
     if (!jobId) return undefined;
     let stop = false;
+    let id;
     const tick = async () => {
       try {
+        const jobRes = await fetch(`/jobs/${jobId}`);
+        // A job id that does not exist is the one case worth surfacing rather
+        // than swallowing: it is how a stale or mistyped ?job= link in the
+        // address bar would otherwise look identical to "nothing started yet",
+        // which is actively misleading to whoever followed that link. It is
+        // also permanent, so stop polling a job id that will never resolve.
+        if (jobRes.status === 404) {
+          if (!stop) setError(`No job found with id ${jobId}.`);
+          clearInterval(id);
+          return;
+        }
         const [s, t] = await Promise.all([
-          fetch(`/jobs/${jobId}`).then((r) => r.json()),
+          jobRes.json(),
           fetch(`/jobs/${jobId}/tree`).then((r) => r.json()),
         ]);
         if (!stop) {
@@ -55,7 +91,7 @@ export default function App() {
       }
     };
     tick();
-    const id = setInterval(tick, terminal ? 5000 : 1500);
+    id = setInterval(tick, terminal ? 5000 : 1500);
     return () => {
       stop = true;
       clearInterval(id);

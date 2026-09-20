@@ -88,6 +88,24 @@ async def ensure_snapshot(repo_url: str, commit_sha: str, dest_root: Path) -> Pa
     return dest
 
 
+def clone_source(repo_url: str, snapshot: Path) -> str:
+    """What the sandbox's `git clone` should actually point at.
+
+    A remote URL is cloned directly: the sandbox is a microVM with network access
+    but no view of this host's filesystem, so a local path would be meaningless
+    there.
+
+    A local path must not be. The bundled fixture is plain files inside this
+    repository with no history of its own, so `git clone tests/fixtures/mini_repo`
+    fails, the following `cd /work` fails with it, and pytest then runs in the
+    wrong directory, collects nothing and exits 5 — which surfaces as BASELINE_RED
+    and reads as "your repository's tests are broken". `ensure_snapshot` has
+    already turned that directory into a real single-commit repo tagged with
+    `commit_sha`, which is exactly what the script expects, so clone from there.
+    """
+    return str(snapshot) if Path(repo_url).is_dir() else repo_url
+
+
 async def _git(*args: str) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -114,9 +132,14 @@ async def build_baseline(
     timeout_s: int = 900,
     install_cmd: str | None = None,
     on_operation=None,
+    clone_url: str | None = None,
 ) -> Baseline:
+    """`repo_url` names the repository — it is what the C0 tag is derived from and
+    what every downstream artifact refers to. `clone_url` is where the sandbox
+    fetches it from, which differs for a local path (see `clone_source`). Keeping
+    them separate stops a snapshot directory's name leaking into the tag."""
     image = await sandbox.use(base_image)
-    script = baseline_script(repo_url, commit_sha, install_cmd=install_cmd)
+    script = baseline_script(clone_url or repo_url, commit_sha, install_cmd=install_cmd)
     tag = baseline_tag(repo_url, commit_sha)
 
     result = await sandbox.run(

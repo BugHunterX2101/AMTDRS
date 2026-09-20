@@ -30,7 +30,7 @@ export function Hero() {
             when a model thinks it should.
           </p>
           <div className="hero-actions">
-            <a className="btn btn--primary btn--lg" href="/app">
+            <a className="btn btn--primary btn--lg" href="/app/">
               <Play aria-hidden="true" />
               Watch a live run
             </a>
@@ -49,9 +49,10 @@ export function Hero() {
             </a>
           </div>
           <p className="hero-note">
-            The hosted console runs with zero credentials against a bundled fixture
-            repo — nothing to sign up for. Free-tier host, first load may take
-            30–60s to wake up.
+            The hosted console takes a bundled fixture repo through a real green
+            baseline, a real code graph and a real blast radius with zero
+            credentials — nothing to sign up for. Patch generation needs your own
+            inference key. Free-tier host, first load may take 30–60s to wake up.
           </p>
         </div>
 

@@ -81,8 +81,10 @@ class Settings(BaseSettings):
     # publish a pull request while it is on.
     bench_accept_without_gates: bool = False
 
-    # Demo flags
-    principal_replay: str = ""
+    # Demo flags. There is deliberately no replay flag: every run is persisted in
+    # the append-only event log and the console reopens any past run at
+    # /app/?job=<job-id> through the same reducer as a live one, so a recorded
+    # run needs no separate code path to serve it.
     principal_slow_mo_ms: int = 0
     principal_force_protocol: str = ""
     principal_model_cache: bool = True

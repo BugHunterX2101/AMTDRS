@@ -472,6 +472,11 @@ export function Outcome({ job }) {
           way onto this card — there is no state in between where an unverified diff
           is the answer.
         </p>
+        <p className="hint">
+          Without an inference key configured, a run gets as far as the verified
+          green baseline, the code graph and the blast radius — all of it real —
+          and then stops at planning, because there is no model to plan with.
+        </p>
       </div>
     );
   }

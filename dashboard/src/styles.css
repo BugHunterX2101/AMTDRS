@@ -31,6 +31,11 @@ body {
   font-family: var(--sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  /* Belt and suspenders alongside the masthead's own wrap rules below: dense
+     monospace evidence (long diffs, operation ids, file paths) is exactly the
+     content most likely to force a child wider than the viewport on a phone,
+     and clipping that is always preferable to a page that scrolls sideways. */
+  overflow-x: hidden;
 }
 
 /* --------------------------------------------------------------- backdrop -- */
@@ -60,10 +65,21 @@ body {
 .masthead {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #11141a, #0b0d10);
+}
+
+/* Below 640px there isn't room for the tagline, the spacer and a row of
+   badges on one line without either truncating or overflowing the viewport.
+   Wrapping (above) keeps every element fully visible instead; hiding the
+   tagline here is what keeps the wrapped result to two short rows rather
+   than three on a phone in portrait. */
+@media (max-width: 640px) {
+  .masthead .tagline { display: none; }
+  .masthead .spacer { flex-basis: 100%; height: 0; }
 }
 
 .masthead .home-link {

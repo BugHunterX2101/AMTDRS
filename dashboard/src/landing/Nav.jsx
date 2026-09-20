@@ -49,7 +49,7 @@ export function Nav() {
             <Github aria-hidden="true" />
             <span>Star on GitHub</span>
           </a>
-          <a className="btn btn--sm btn--primary" href="/app">
+          <a className="btn btn--sm btn--primary" href="/app/">
             Open console
           </a>
           <button

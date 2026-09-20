@@ -197,12 +197,13 @@ async def debug_blast_radius(repo_url: str, commit_sha: str, target_fqn: str, re
     from principal.graph.build import build as build_graph
     from principal.sandbox.baseline import ensure_snapshot
 
+    # Both find_target (TARGET_NOT_FOUND) and blast_radius (RADIUS_TOO_LARGE) can
+    # raise PrincipalError. Neither is caught here: the app-level exception
+    # handler turns each into the documented error envelope with the right status
+    # code, which is one implementation instead of two ad hoc translations.
     snapshot = await ensure_snapshot(repo_url, commit_sha, app.settings.principal_snapshots_dir)
     stats = build_graph(app.store, snapshot, repo_url, commit_sha)
-    try:
-        target = find_target(app.store, stats.graph_id, target_fqn)
-    except PrincipalError as exc:
-        raise HTTPException(404, exc.message) from exc
+    target = find_target(app.store, stats.graph_id, target_fqn)
     radius = blast_radius(app.store, stats.graph_id, target, max_depth=app.settings.radius_max_depth,
                            cap=app.settings.radius_file_cap)
     return radius.to_payload()

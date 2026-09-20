@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -252,6 +253,12 @@ async def _run(args) -> int:
     finally:
         await asyncio.sleep(0.1)
         printer.cancel()
+        # Awaiting the cancelled task matters: cancel() only schedules the
+        # CancelledError, and the drain in _print_events' handler runs at the
+        # next await point. Without this, that drain ran after store.close()
+        # below and died on a closed database, losing the tail of every run.
+        with contextlib.suppress(asyncio.CancelledError):
+            await printer
 
     final = store.get_job(job.id)
     assert final is not None
@@ -266,14 +273,26 @@ async def _run(args) -> int:
 
 
 async def _print_events(events, job_id: str) -> None:
+    """Print events live, then drain whatever the live subscriber missed.
+
+    The drain is bounded by the highest seq already printed. Replaying from zero
+    would print the whole run a second time, which is exactly the shape of bug
+    that makes a demo look broken while nothing is actually wrong.
+    """
+
+    def show(ev) -> None:
+        print(f"  {ev.seq:>4}  {ev.kind:<28} {json.dumps(ev.payload, default=str)[:140]}")
+
     queue = events.subscribe(job_id)
+    seen = 0
     try:
         while True:
             ev = await queue.get()
-            print(f"  {ev.seq:>4}  {ev.kind:<28} {json.dumps(ev.payload, default=str)[:140]}")
+            seen = max(seen, ev.seq)
+            show(ev)
     except asyncio.CancelledError:
-        for ev in events.replay(job_id):
-            print(f"  {ev.seq:>4}  {ev.kind:<28} {json.dumps(ev.payload, default=str)[:140]}")
+        for ev in events.replay(job_id, after_seq=seen):
+            show(ev)
         raise
     finally:
         events.unsubscribe(job_id, queue)

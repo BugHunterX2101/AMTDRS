@@ -5,11 +5,11 @@ import { ChevronDown } from "./icons";
 const ITEMS = [
   {
     q: "Does a model ever decide whether a patch merges?",
-    a: "No. The accept decision is a `pytest` / `vitest` exit code from a real run inside a sandbox — never a score from a language model. This isn't a policy, it's an architecture contract: the `gates` module is not permitted to import the `models` module, and that rule is checked in CI on every commit, not just claimed in a doc.",
+    a: "No. The accept decision is a `pytest` exit code from a real run inside a sandbox — never a score from a language model. This isn't a policy, it's an architecture contract: the `gates` module is not permitted to import the `models` module, and that rule is checked in CI on every commit, not just claimed in a doc.",
   },
   {
     q: "Can an agent edit a test file to make itself pass?",
-    a: "No. `apply_patch` deterministically rejects any diff that touches a test file, before it's ever applied. An agent that could edit the tests could pass any test, which is why this is treated as the single highest-value guardrail in the whole system.",
+    a: "No. The scope gate rejects any diff that touches a test file before the patch is applied and before a sandbox is spent — and an agent has no patch-applying tool to reach around it with, because its only output is diff text. An agent that could edit the tests could pass any test, which is why this is treated as the single highest-value guardrail in the whole system.",
   },
   {
     q: "Can an agent touch files outside its assigned scope?",
@@ -21,7 +21,7 @@ const ITEMS = [
   },
   {
     q: "What's actually in scope today?",
-    a: "One refactor class — interface evolution: changing how a module exposes functionality and propagating the change through every consumer — on Python and TypeScript repositories up to roughly 2,000 files, with `pytest`, `vitest` or `jest` as the test runner. Decomposition, extraction and relocation are on the roadmap, not V1.",
+    a: "One refactor class — interface evolution: changing how a module exposes functionality and propagating the change through every consumer — on repositories up to roughly 2,000 files. The code graph parses Python and TypeScript today; the verification path runs `pytest`, so Python is what ships end to end and TypeScript stops at analysis until a `vitest` runner lands. Decomposition, extraction and relocation are on the roadmap, not V1.",
   },
   {
     q: "Is any of this actually benchmarked?",
@@ -29,11 +29,11 @@ const ITEMS = [
   },
   {
     q: "Who actually holds the GitHub credential?",
-    a: "Only the orchestrator, and only after the integration gate is green. No agent role — Cartographer, Planner, Coder, Repairer or Reporter — ever receives a token that can reach GitHub. Agents produce diffs; opening the PR is deterministic code, not a tool an LLM is trusted with.",
+    a: "Only the orchestrator, and only after the integration gate is green. No agent role — Planner, Coder, Repairer or Reporter — ever receives a token that can reach GitHub. Agents produce diffs; opening the PR is deterministic code, not a tool an LLM is trusted with. It's an import contract too: `agents` may not import `publish`.",
   },
   {
-    q: "Is the hosted demo safe to point at my own repository?",
-    a: "The public demo runs against a bundled fixture repo with zero credentials configured, by design — there's nothing to sign into. Running it against a real repository means supplying your own Token Factory key and a scoped GitHub token, either self-hosted from the Apache-2.0 source or through a managed Team plan.",
+    q: "What does the hosted console do without credentials?",
+    a: "It runs the deterministic half for real: it builds a verified green baseline in an in-process sandbox with real `git` and real `pytest`, parses the repository with tree-sitter, and computes the blast radius — then stops at planning, because generating a patch needs an inference key and there isn't one. That's the honest boundary, and it's deliberately where the demo sits: everything a model can't fake is what you can check for free. Point it at a real repository with your own Token Factory key to see the rest.",
   },
 ];
 

@@ -9,7 +9,7 @@ const COLUMNS = [
       { label: "How it works", href: "#how-it-works" },
       { label: "Evidence", href: "#evidence" },
       { label: "Guardrails", href: "#guardrails" },
-      { label: "Live console", href: "/app" },
+      { label: "Live console", href: "/app/" },
     ],
   },
   {

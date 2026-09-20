@@ -11,9 +11,9 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 | **Models** | NVIDIA Nemotron 3 — Nano 30B-A3B, Super 120B-A12B, Ultra 550B-A55B |
 | **License** | Apache 2.0 |
 | **Repository** | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) |
-| **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — runs with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
+| **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — landing page at `/`, operator console at `/app/`; baseline, code graph and blast radius run with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
 | **Demo video** | *(3 minutes — see [`docs/DEMO_VIDEO.md`](docs/DEMO_VIDEO.md) for the shot list)* |
-| **Tests** | 108 passing · ruff clean · 3/3 architecture contracts held |
+| **Tests** | 110 passing · ruff clean · 3/3 architecture contracts held |
 
 ---
 
@@ -21,7 +21,7 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 
 Ask any coding agent to "remove this deprecated parameter" and it will do a good job on one file. The work that actually costs engineering teams money is the other kind: a signature change that touches forty call sites across nine modules, where being right in eight modules and wrong in the ninth is worse than not starting, because now someone has to review a large diff to find the one mistake.
 
-Two things make that task hard for a single agent. It is **wide** — the context needed exceeds what fits usefully in one window — and it is **unverifiable by inspection** — the only honest signal about whether a refactor is correct is whether the test suite still passes. Frontier models score well above 80% on issue-resolution benchmarks and measurably worse on multi-file, behaviour-preserving refactors — the gap is a scaffolding problem, not purely a weights problem, and it is the gap this project is built to close.
+Two things make that task hard for a single agent. It is **wide** — the context needed exceeds what fits usefully in one window — and it is **unverifiable by inspection** — the only honest signal about whether a refactor is correct is whether the test suite still passes. Frontier systems score well above 80% on issue-resolution benchmarks; on [SWE Atlas Refactoring](https://labs.scale.com/leaderboard/sweatlas-refactoring) the leader sits at **59.05** and open models lag well behind that. The gap is a scaffolding problem more than a weights problem, and it is the gap this project is built to close.
 
 ## The approach
 
@@ -230,7 +230,7 @@ Principal uses **three** tiers rather than one, because the work is genuinely th
 
 | Tier | Model | Scale | What it does | Why this tier |
 |---|---|---|---|---|
-| **Nano** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | 30B total, ~3.6B active | generates candidate patches; summarises failing test output | Candidate generation is the highest-volume call in the system — three per task, dozens per job — and the one where being wrong is cheapest, because gate 3 catches it. A ~3.6B active-parameter MoE makes wide fan-out economically possible; the whole design collapses if every candidate costs Ultra money. |
+| **Nano** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | 30B total, 3.5B active | generates candidate patches; summarises failing test output | Candidate generation is the highest-volume call in the system — three per task, dozens per job — and the one where being wrong is cheapest, because gate 3 catches it. A 3.5B active-parameter MoE makes wide fan-out economically possible; the whole design collapses if every candidate costs Ultra money. |
 | **Super** | `nvidia/nemotron-3-super-120b-a12b` | 120B total, 12B active | repairs a candidate that failed its tests | Repair is narrow and well-specified — here is the diff, here is the failure, fix it — but needs real reasoning about *why* a test failed. Documented latent-MoE routing to ~4× the effective experts at the same inference cost buys that without Ultra's latency in a retry loop. |
 | **Ultra** | `nvidia/Nemotron-3-Ultra-550b-a55b` | 550B total, 55B active | decomposes the goal into an ordered, dependency-aware task plan | Planning is called **once per job** and every downstream decision inherits its mistakes. This is the one place where paying the most for the best long-horizon reasoning is unambiguously correct. |
 
@@ -294,7 +294,9 @@ Detailed, specific engineering feedback on all of the above — including the pr
 
 ## Quickstart — no credentials needed
 
-Principal runs end to end with **no Nebius account at all**, against a bundled 14-file fixture repository, using an in-process sandbox that executes real `git` and real `pytest`. This is how you verify the setup works before spending a token.
+Principal runs its entire **deterministic half** with **no Nebius account at all**, against a bundled fixture repository of 14 Python modules, using an in-process sandbox that executes real `git` and real `pytest`. That means: a genuinely verified green baseline, real per-test coverage, a real tree-sitter code graph and a real blast radius. It stops at planning, because generating a patch needs an inference key.
+
+That boundary is deliberate and it is the useful one — everything you can check for free is the half a model cannot fake.
 
 ```bash
 git clone https://github.com/BugHunterX2101/AMTDRS.git
@@ -327,9 +329,9 @@ principal radius \
   --target src.auth.session.create
 ```
 
-That prints the 7 files and 2 test files that a change to `create()` can reach, every call site with its confidence, and the 2 genuinely unresolvable dynamic dispatches — in about two seconds.
+That prints the 7 source files and 2 test files that a change to `create()` can reach, all 24 call sites inside that radius with their confidence — 14 of them naming `create` itself, 9 of those in `src/` — and the 2 genuinely unresolvable dynamic dispatches, in about two seconds.
 
-Then run a full job against the fixture:
+Then run a job against the fixture:
 
 ```bash
 principal run \
@@ -340,10 +342,12 @@ principal run \
   --fake-sandbox
 ```
 
+With no `NEBIUS_API_KEY` set, that clones, installs, runs the fixture's 14 tests green, builds the graph, computes the radius, and then aborts at `Planning` with a 401 — which is the correct behaviour and exactly what the boundary above describes. Set a key and the same command runs to `Done` or `NoPR`.
+
 And the tests:
 
 ```bash
-make test          # or: pytest — 108 tests, unit + integration
+make test          # or: pytest — 110 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -410,17 +414,23 @@ curl -X POST localhost:8000/jobs -H 'content-type: application/json' -d '{
 
 ### Dashboard
 
-Served at `/` by `principal serve` once built:
+Two pages, built into one `dist/` and served by `principal serve`:
+
+| Path | Page |
+|---|---|
+| `/` | landing page — what Principal is and why the guarantee is the product |
+| `/app/` | operator console — the live run |
+| `/app/?job=<job-id>` | any past run, replayed from the event log by the same reducer |
 
 ```bash
 cd dashboard && npm install && npm run build
 ```
 
-It renders the live fork tree, per-candidate gate progress, an evidence drawer (diff, test output, coverage delta for any attempt) and the NoPR report. `PRINCIPAL_SLOW_MO_MS=250` paces event emission so the fan-out is legible on video.
+The console renders the live fork tree, per-candidate gate progress, an evidence drawer (diff, test output, coverage delta for any attempt), run economics and the NoPR report, and can cancel a job in flight. Because the run id lives in the URL, a reload or a slept laptop resumes the same run rather than losing it, and a run can be linked to. `PRINCIPAL_SLOW_MO_MS=250` paces event emission so the fan-out is legible on video.
 
 ### Code-graph MCP server
 
-The static analysis is exposed as five read-only MCP tools (`find_symbol`, `callers_of`, `blast_radius`, `tests_covering`, `read_span`), mounted by `principal serve` and usable from any MCP client. Every tool is read-only by construction — there is no write tool, no shell tool, and nothing that names a sandbox, so an agent holding this toolset can look at the code and nothing else.
+The static analysis is exposed as five read-only MCP tools (`find_symbol`, `callers_of`, `blast_radius`, `tests_covering`, `read_span`). `principal serve` mounts them over streamable HTTP at **`/mcp/`**, and `python -m mcp_code_graph.server` runs the identical server object over stdio for any MCP client. Every tool is read-only by construction — there is no write tool, no shell tool, and nothing that names a sandbox, so an agent holding this toolset can look at the code and nothing else.
 
 ### Benchmark
 
@@ -515,18 +525,24 @@ AMTDRS/
 │   └── api/
 │       ├── app.py                    FastAPI, lifespan (capability probe, sandbox probe, MCP mount)
 │       ├── routes.py                 the eight endpoints incl. /healthz
-│       ├── stream.py                 SSE from the event table
+│       ├── stream.py                 SSE from the event table — subscribe first, then replay
 │       └── schemas.py                request/response models
 │
 ├── mcp_code_graph/                  5 read-only MCP tools over the code graph
-│   ├── server.py                     FastMCP adapter, session-scoped
+│   ├── server.py                     FastMCP adapter, mounted at /mcp/ and runnable over stdio
 │   └── tools.py                      find_symbol, callers_of, blast_radius, tests_covering, read_span
 │
-├── dashboard/                        React + Vite, SSE client
+├── dashboard/                        React + Vite, two pages, one dist/
+│   ├── index.html                    landing page entry          → /
+│   ├── app/index.html                operator console entry      → /app/
+│   ├── vite.config.js                multi-page build, dev proxy to the API
 │   └── src/
-│       ├── App.jsx                   layout: job form, pipeline, fork tree, evidence drawer
-│       ├── components.jsx            Masthead, TaskBoard, ForkTree, Outcome, EvidenceDrawer…
-│       └── useJobStream.js           the event-log reducer — resumable via Last-Event-ID
+│       ├── App.jsx                   console layout; run id lives in ?job=
+│       ├── components.jsx            Masthead, TaskBoard, ForkTree, Outcome, Economics, EvidenceDrawer…
+│       ├── Backdrop.jsx              WebGL2 node-lattice backdrop, one draw call, verdict-tinted
+│       ├── useJobStream.js           the event-log reducer — resumable via Last-Event-ID
+│       ├── styles.css                console styles, dual-tone section accents
+│       └── landing/                  Hero, Pipeline, Evidence, Compare, Pricing, FAQ, Footer…
 │
 ├── bench/                            three arms, honest three-bucket scoring
 │   ├── harness.py                    drives real run_job() per (task, arm), independent re-verification

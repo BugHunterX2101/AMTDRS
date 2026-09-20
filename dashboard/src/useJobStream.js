@@ -22,6 +22,9 @@ const EMPTY = {
   plan: [],
   tasks: {},     // task_id -> { id, file, title, state, attempts: {} }
   attempts: {},  // attempt_id -> { id, taskId, n, model, verdict, gate, reason, ... }
+  characterisation: null,
+  cleanup: null,
+  security: null,
   integration: null,
   prUrl: null,
   events: [],
@@ -121,6 +124,36 @@ function reduce(s, ev) {
       };
     }
 
+    case "characterise.result":
+      return { ...s, characterisation: p };
+
+    case "cleanup.planned":
+      return { ...s, cleanup: { ...s.cleanup, planned: p.tasks || [] } };
+
+    case "cleanup.tasks_created": {
+      // Cleanup tasks are created after `cleanup.planned` fires, so this is
+      // the first point their real task ids are known — merge them into the
+      // same `tasks` map plan.ready populates, so the task board renders
+      // both kinds of work through one code path instead of two.
+      const tasks = { ...s.tasks };
+      for (const t of p.tasks || []) {
+        tasks[t.id] = {
+          id: t.id, file: t.target_file, title: "cleanup: remove dead code",
+          wave: 0, state: "pending", attempts: {}, kind: "cleanup",
+        };
+      }
+      return { ...s, tasks };
+    }
+
+    case "cleanup.result":
+      return { ...s, cleanup: { ...s.cleanup, orphansFound: p.orphans_found } };
+
+    case "cleanup.skipped":
+      return { ...s, cleanup: { ...s.cleanup, skipped: true, reason: p.reason } };
+
+    case "security.result":
+      return { ...s, security: p };
+
     case "integration.result":
       return { ...s, integration: p };
 
@@ -170,10 +203,13 @@ export function useJobStream(jobId) {
 
     const kinds = [
       "job.state", "job.stopped", "baseline.operation", "baseline.ready",
-      "graph.built", "radius.computed", "plan.ready", "attempt.started",
+      "graph.built", "radius.computed", "characterise.operation",
+      "characterise.result", "plan.ready", "attempt.started",
       "attempt.verdict", "repair.classified", "repair.test_expectation",
-      "task.settled", "integration.operation", "integration.conflict",
-      "integration.result", "pr.opened", "pr.publish_failed",
+      "task.settled", "cleanup.planned", "cleanup.tasks_created",
+      "cleanup.operation", "cleanup.result", "cleanup.skipped",
+      "integration.operation", "integration.conflict", "integration.result",
+      "security.result", "pr.opened", "pr.publish_failed",
     ];
     for (const k of kinds) es.addEventListener(k, handle(k));
 

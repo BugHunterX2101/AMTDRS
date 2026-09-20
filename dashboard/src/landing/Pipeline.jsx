@@ -39,6 +39,15 @@ const GATES = [
     body: "Surviving patches pass in isolation, but patches that each pass alone can still conflict with each other. Every accepted patch is applied together in dependency order onto a fresh fork of the green baseline, and the entire suite runs exactly once, for real. Only if that run is green does the orchestrator — never an agent — open the draft PR with a token no model ever holds.",
     reject: "Rejects: any regression introduced by combining otherwise-green patches.",
   },
+  {
+    n: 5,
+    label: "Security",
+    where: "local · differential scan",
+    cost: "milliseconds",
+    kind: "local",
+    body: "A deterministic scanner — not a model — walks the baseline tree and the patched tree separately and diffs the findings: hardcoded secrets, eval/exec on untrusted input, unsafe deserialisation, shell and SQL injection shapes, disabled TLS verification. Only fingerprints absent from the baseline and present in the patch are reported, so a pre-existing issue elsewhere in the file never blocks an unrelated refactor. A patch that introduces a new one is discarded before publishing, no exceptions.",
+    reject: "Rejects: any finding whose fingerprint is new relative to the baseline scan.",
+  },
 ];
 
 export function Pipeline() {
@@ -50,10 +59,10 @@ export function Pipeline() {
       <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
         <div className="eyebrow">How it works</div>
         <h2 className="section-title">
-          Four gates. Nothing moves right without passing one.
+          Five gates. Nothing moves right without passing every one.
         </h2>
         <p className="section-lede">
-          Gates 1 and 2 never touch a sandbox — that's deliberate. Most bad
+          Gates 1, 2 and 5 never touch a sandbox — that's deliberate. Most bad
           candidates die for free, in-process, which is what makes it affordable to
           generate several competing attempts per task instead of one.
         </p>

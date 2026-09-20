@@ -63,7 +63,7 @@ async def job_event_stream(
 def _terminal(kind: str, payload: dict) -> bool:
     if kind == "job.stopped":
         return True
-    return kind == "job.state" and payload.get("state") in {"Done", "Aborted"}
+    return kind == "job.state" and payload.get("state") in {"Done", "Aborted", "NoSafetyNet"}
 
 
 def _dumps(payload: dict) -> str:

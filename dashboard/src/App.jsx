@@ -33,7 +33,7 @@ export default function App() {
   const [error, setError] = useState(null);
 
   const { job, connected } = useJobStream(jobId);
-  const terminal = ["Done", "NoPR", "Aborted"].includes(job.state);
+  const terminal = ["Done", "NoPR", "Aborted", "NoSafetyNet"].includes(job.state);
 
   // Keep the address bar in step, and follow Back/Forward. replaceState rather
   // than pushState on start: a new run replaces the view it was launched from,
@@ -133,10 +133,10 @@ export default function App() {
   const running = Boolean(jobId) && !terminal;
 
   // The room takes the colour of the verdict: violet→green while work is being
-  // verified, amber for the no-PR outcome (a correct result, not an error, so
-  // it must not be red), red only for a genuine abort.
+  // verified, amber for a correct refusal (no-PR or no-safety-net — neither is
+  // an error, so neither is red), red only for a genuine abort.
   const mood =
-    job.state === "NoPR"
+    job.state === "NoPR" || job.state === "NoSafetyNet"
       ? { from: "#d29922", to: "#a371f7" }
       : job.state === "Aborted"
       ? { from: "#f85149", to: "#d29922" }
@@ -196,6 +196,30 @@ export default function App() {
                   Baseline verified green: {job.baseline.passed ?? "?"} tests passing in{" "}
                   {Math.round((job.baseline.duration_ms ?? 0) / 1000)}s. Every candidate
                   forks from this one image.
+                </div>
+              )}
+              {job.characterisation && job.characterisation.status !== "skipped" && (
+                <div className="hint">
+                  Safety net ({job.characterisation.status}):{" "}
+                  {job.characterisation.mutation?.score != null
+                    ? `mutation score ${job.characterisation.mutation.score.toFixed(2)}`
+                    : "no scoreable mutants"}
+                  {job.characterisation.mutants_generated > 0 &&
+                    ` across ${job.characterisation.mutants_generated} generated mutants`}
+                  . The target had no covering test, so a characterisation suite was
+                  generated and measured before any refactor attempt.
+                </div>
+              )}
+              {job.cleanup?.planned?.length > 0 && (
+                <div className="hint">
+                  Cleanup: {job.cleanup.planned.length} file(s) with dead code introduced
+                  by this refactor
+                  {job.cleanup.skipped
+                    ? ` — skipped (${job.cleanup.reason || "refactor diffs did not verify together"})`
+                    : job.cleanup.orphansFound != null
+                    ? ` — ${job.cleanup.orphansFound} orphan(s) confirmed and removed`
+                    : ""}
+                  .
                 </div>
               )}
             </div>

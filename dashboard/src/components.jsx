@@ -61,7 +61,13 @@ const DEFAULTS = {
   commit_sha: "deadbeef",
   target_fqn: "src.auth.session.create",
   goal: "Make the ttl parameter keyword-only and update every call site.",
+  routine: "interface_evolution",
 };
+
+const ROUTINES = [
+  { value: "interface_evolution", label: "Interface evolution — change a signature, update every call site" },
+  { value: "relocation", label: "Relocation — move a symbol, reconcile every importer" },
+];
 
 export function JobForm({ onStart, running }) {
   const [form, setForm] = useState(DEFAULTS);
@@ -91,6 +97,16 @@ export function JobForm({ onStart, running }) {
         <label htmlFor="goal">Goal</label>
         <textarea id="goal" value={form.goal} onChange={set("goal")} />
       </div>
+      <div className="field">
+        <label htmlFor="routine">Routine</label>
+        <select id="routine" value={form.routine} onChange={set("routine")}>
+          {ROUTINES.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <button className="primary" type="submit" disabled={running}>
         {running ? "Running…" : "Start job"}
       </button>
@@ -100,11 +116,15 @@ export function JobForm({ onStart, running }) {
 
 /* ---------------------------------------------------------------- pipeline -- */
 
-const STAGES = ["Ingesting", "Baselining", "Mapping", "Planning", "Executing", "Integrating", "Publishing"];
+const STAGES = [
+  "Ingesting", "Baselining", "Mapping", "Characterising", "Planning", "Executing",
+  "CleanupPlanning", "CleanupExecuting", "Integrating", "Publishing",
+];
+const TERMINAL_STATES = ["Done", "NoPR", "Aborted", "NoSafetyNet"];
 
 export function Pipeline({ state }) {
   const idx = STAGES.indexOf(state);
-  const terminal = ["Done", "NoPR", "Aborted"].includes(state);
+  const terminal = TERMINAL_STATES.includes(state);
   return (
     <div className="pipeline">
       {STAGES.map((s, i) => {
@@ -117,7 +137,15 @@ export function Pipeline({ state }) {
           </span>
         );
       })}
-      {terminal && <span className={`stage ${state === "Done" ? "done" : "failed"}`}>{state}</span>}
+      {terminal && (
+        <span
+          className={`stage ${
+            state === "Done" ? "done" : state === "Aborted" ? "failed" : "nopr"
+          }`}
+        >
+          {state}
+        </span>
+      )}
     </div>
   );
 }
@@ -450,6 +478,24 @@ export function Outcome({ job }) {
           Principal fails closed. A refactoring tool that sometimes ships an unverified
           change converts a bounded engineering task into an unbounded review task, so
           declining to ship is a success state, not a failure.
+        </p>
+      </div>
+    );
+  }
+  if (job.state === "NoSafetyNet") {
+    return (
+      <div className="outcome nopr">
+        <h2>No safety net — refactoring declined before any patch was attempted</h2>
+        <p>
+          {job.stopReason || "The target has no test coverage, and the generated" +
+            " characterisation suite did not clear the mutation-score floor."}
+          <br />
+          <br />
+          Writing tests that authorise their own change would prove nothing — the same
+          model would be grading its own homework. Principal instead measures whether the
+          generated suite actually detects real changes to the target, and refuses to
+          proceed when it can't, rather than refactoring against an oracle known to be
+          blind.
         </p>
       </div>
     );

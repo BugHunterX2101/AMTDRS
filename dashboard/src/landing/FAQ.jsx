@@ -16,16 +16,24 @@ const ITEMS = [
     a: "No. Each coder receives exactly one file to modify plus read-only context. A diff touching any other path is rejected by a deterministic check against the blast radius — the transitive closure of imports and calls, computed before any model runs. A scope violation is a structural impossibility, not a rule the model is asked to follow.",
   },
   {
+    q: "Could a refactor introduce a security issue that the test suite doesn't catch?",
+    a: "A passing test suite says nothing about whether the patch introduced a hardcoded secret, an eval on untrusted input, or a disabled TLS check — none of that is what tests are for. A deterministic scanner runs against the baseline tree and the patched tree separately and reports only findings that are new in the patch, identified by a fingerprint that excludes line number so a refactor's own line shifts don't produce false positives. A patch that introduces a new finding is discarded before publishing. No model makes this call.",
+  },
+  {
     q: "What happens when nothing verifies?",
     a: "Principal stops and returns `NoPR`, along with a report of exactly what it tried and where each attempt died. That's treated as a correct outcome, not a failure state — shipping a plausible-looking diff of unknown correctness is worse than shipping nothing, because it converts a bounded engineering task into an unbounded review task.",
   },
   {
     q: "What's actually in scope today?",
-    a: "One refactor class — interface evolution: changing how a module exposes functionality and propagating the change through every consumer — on repositories up to roughly 2,000 files. The code graph parses Python and TypeScript today; the verification path runs `pytest`, so Python is what ships end to end and TypeScript stops at analysis until a `vitest` runner lands. Decomposition, extraction and relocation are on the roadmap, not V1.",
+    a: "Two refactor classes, selected per job through a routine registry: interface evolution — changing how a module exposes functionality and propagating the change through every consumer — and relocation, moving a symbol and reconciling every importer. Both run on repositories up to roughly 2,000 files. The code graph parses Python and TypeScript today; the verification path runs `pytest`, so Python is what ships end to end and TypeScript stops at analysis until a `vitest` runner lands. Decomposition and extraction — splitting or pulling logic out of a function — are on the roadmap, not V1.",
+  },
+  {
+    q: "What happens when the target has no test coverage?",
+    a: "Principal doesn't refactor against a hollow oracle. When the target symbol has no covering test, a Characteriser agent — never shown the refactoring goal — writes tests describing the code's actual current behaviour, which are discarded outright if they don't pass against the unmodified baseline. Their sensitivity is then measured directly: real mutants are seeded into the target and the suite must detect most of them, not merely run. Below that floor, the job stops and reports `NoSafetyNet` — a refusal, not a crash — rather than refactor against tests that would rubber-stamp any change.",
   },
   {
     q: "Is any of this actually benchmarked?",
-    a: "The evaluation plan runs a fixed subset of Scale AI's SWE Atlas Refactoring benchmark — Python and TypeScript, interface-evolution tasks only — across four arms: an unscaffolded Nemotron baseline, sandbox-with-retry alone, the full Principal swarm, and published frontier scores for reference. Every model call is logged and every trace is published to the repo, specifically so the result doesn't have to be taken on trust.",
+    a: "The evaluation plan runs a fixed subset of Scale AI's SWE Atlas Refactoring benchmark — Python and TypeScript, interface-evolution and relocation tasks — across four arms: an unscaffolded Nemotron baseline, sandbox-with-retry alone, the full Principal swarm, and published frontier scores for reference. Every model call is logged and every trace is published to the repo, specifically so the result doesn't have to be taken on trust.",
   },
   {
     q: "Who actually holds the GitHub credential?",

@@ -478,6 +478,14 @@ async def _cleanup(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
         )
         created.append(row)
 
+    # `cleanup.planned` (above) fires before these rows exist, so it can't carry
+    # task ids. Without a follow-up event naming them, every attempt.started for
+    # a cleanup candidate references a task_id the dashboard has never heard of
+    # and the whole cleanup wave races invisibly.
+    events.emit(job_id, "cleanup.tasks_created", {
+        "tasks": [{"id": t.id, "target_file": t.target_file} for t in created],
+    })
+
     runner = WaveRunner(ctx=ctx, max_parallel=settings.max_parallel_tasks,
                          candidates_per_task=settings.candidates_per_task)
     await runner.run_waves([created])
@@ -541,6 +549,11 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         }):
             store.update_job(job_id, state="NoPR", stop_reason="integration run did not pass",
                               finished_at=now())
+        # `integration.result` alone doesn't signal terminal to the SSE stream
+        # (stream.py's _terminal only recognises job.stopped and a job.state
+        # of Done/Aborted/NoSafetyNet) — without this, the most common NoPR
+        # path leaves every open connection hanging indefinitely.
+        events.emit(job_id, "job.stopped", {"reason": "integration run did not pass"})
         raise _Stopped("integration red")
 
     snapshot = await ensure_snapshot(job.repo_url, job.commit_sha, settings.principal_snapshots_dir)

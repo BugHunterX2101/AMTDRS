@@ -27,8 +27,8 @@ const ROWS = [
   },
   {
     name: "Principal",
-    does: "Autonomous interface-evolution refactors across a whole repo.",
-    stops: "One refactor class today — the goal is still set by a human.",
+    does: "Autonomous interface-evolution and relocation refactors across a whole repo.",
+    stops: "Two refactor classes today — the goal is still set by a human.",
     verify: "The repo's own test suite, every time",
     self: true,
   },

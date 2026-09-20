@@ -52,13 +52,18 @@ def importers_only_radius(
         )
 
     radius.symbols = {target.id}
-    non_test = {p for p in radius.files if not _is_test(store, graph_id, p)}
+    is_test_by_path = store.test_flags_of(graph_id, radius.files)
+    non_test = {p for p in radius.files if not is_test_by_path.get(p, False)}
     if len(non_test) > cap:
         raise RadiusTooLarge(len(non_test), cap)
 
-    for row in store.tests_covering(graph_id, {target.id}):
+    covering = store.tests_covering(graph_id, {target.id})
+    test_paths = store.paths_of_files({int(row["test_file_id"]) for row in covering})
+    for row in covering:
         radius.tests.append(row["nodeid"])
-        radius.test_files.add(store.path_of_file(row["test_file_id"]))
+        path = test_paths.get(int(row["test_file_id"]), "")
+        if path:
+            radius.test_files.add(path)
     radius.tests = sorted(set(radius.tests))
     radius.files = non_test
     return radius
@@ -76,8 +81,3 @@ def moved_symbols(declared_removals: list[str], patched_exports: dict[str, set[s
     for names in patched_exports.values():
         present |= names
     return {name for name in declared_removals if name in present}
-
-
-def _is_test(store: Store, graph_id: str, path: str) -> bool:
-    r = store.q1("SELECT is_test FROM file WHERE graph_id = ? AND path = ?", (graph_id, path))
-    return bool(r["is_test"]) if r else False

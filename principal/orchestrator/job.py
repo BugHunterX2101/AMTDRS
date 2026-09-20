@@ -7,6 +7,7 @@ correctly declined to ship.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -229,6 +230,19 @@ async def _characterise(
     )
     _register_characterisation(store, graph_id, target, test_path, result.test_source or "")
 
+    # `result.image` has the test file physically written to it and nothing
+    # else — mutation testing ran against a disposable fork of it, never in
+    # place. Without re-pointing the baseline here, every task candidate
+    # forked from here on would come from an image that has never heard of
+    # this test, and gate 3 would try to run a nodeid that does not exist on
+    # disk: not a slow failure, a guaranteed one, for every candidate, on
+    # every job that ever needed a safety net in the first place.
+    if result.image:
+        with events.transaction(job_id, "characterise.rebaselined", {
+            "previous_baseline_image": job.baseline_image, "baseline_image": result.image,
+        }):
+            store.update_job(job_id, baseline_image=result.image)
+
 
 def _register_characterisation(
     store: Store, graph_id: str, target: SymbolRow, test_path: str, test_source: str,
@@ -318,6 +332,7 @@ async def _execute(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
         radius_files=set(radius.files), store=store, events=events, models=models, sandbox=sandbox,
         convention_index=convention_index, task_timeout_s=settings.task_timeout_s,
         sandbox_timeout_s=settings.sandbox_timeout_s, max_repairs=settings.max_repairs,
+        runs_dir=settings.run_dir(job_id),
         bench_accept_without_gates=settings.bench_accept_without_gates,
     )
 
@@ -466,6 +481,7 @@ async def _cleanup(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
         radius_files=set(touched), store=store, events=events, models=models, sandbox=sandbox,
         convention_index=convention_index, task_timeout_s=settings.task_timeout_s,
         sandbox_timeout_s=settings.sandbox_timeout_s, max_repairs=settings.max_repairs,
+        runs_dir=settings.run_dir(job_id),
         bench_accept_without_gates=settings.bench_accept_without_gates,
     )
 
@@ -609,12 +625,32 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         store.update_job(job_id, state="Publishing")
 
     uncovered = _uncovered_files(store, graph_id, touched_files)
+    characterisation_only = _characterisation_only_files(store, graph_id, touched_files)
+    characterisation_result = (
+        _last_characterisation_result(store, job_id) if characterisation_only else None
+    )
     report = await compose_report(
         models, job_id=job_id, goal=job.goal,
-        verified=[{"target_file": t.target_file, "instruction": t.instruction, "acceptance": t.acceptance}
-                  for t in verified],
-        discarded=[{"target_file": t.target_file, "discard_reason": t.discard_reason} for t in discarded],
+        verified=[
+            {"target_file": t.target_file, "instruction": t.instruction, "acceptance": t.acceptance,
+             "kind": t.kind}
+            for t in verified
+        ],
+        discarded=[
+            {"target_file": t.target_file, "discard_reason": t.discard_reason, "kind": t.kind}
+            for t in discarded
+        ],
         uncovered=uncovered,
+        characterisation_only=characterisation_only,
+        characterisation_result=characterisation_result,
+        relocated_symbols=relocated,
+        # The dashboard's own Blast radius panel tells the operator these are
+        # "listed in the pull request for a human to check" — a call site the
+        # graph could not prove statically reaches (or doesn't reach) the
+        # target. That claim was previously false: `radius` has carried this
+        # list since planning, and nothing downstream of it ever read the
+        # field again.
+        unresolved_call_sites=radius.unresolved,
         integration={
             "api_delta_ok": behaviour.api_delta_ok, "coverage_ok": behaviour.coverage_ok,
             "test_count_ok": behaviour.test_count_ok,
@@ -634,11 +670,27 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         with events.transaction(job_id, "job.state", {"state": "Done"}):
             store.update_job(job_id, state="Done", finished_at=now())
         return
+    # Additive to the *published* diff set only — not to `diffs` above, which
+    # feeds `run_integration`. That run forks from a baseline that already has
+    # the test file physically present (see `_characterise`'s re-baseline), so
+    # applying a "create this file" patch there would collide with a file that
+    # already exists. `open_pr` instead starts from a pristine, uncharacterised
+    # checkout, where this is exactly the missing piece.
+    characterisation_diff = _characterisation_diff(
+        store, settings, job_id, graph_id, job.target_fqn or "",
+    )
+    publish_diffs = [*diffs, characterisation_diff] if characterisation_diff else diffs
     try:
         pr_url = await open_pr(
             job=job, title=report.title,
-            body=report.body or render_fallback_body(job.goal, verified, discarded, uncovered),
-            diffs=diffs, settings=settings,
+            body=report.body or render_fallback_body(
+                job.goal, verified, discarded, uncovered,
+                characterisation_only=characterisation_only,
+                characterisation_result=characterisation_result,
+                relocated_symbols=relocated,
+                unresolved_call_sites=radius.unresolved,
+            ),
+            diffs=publish_diffs, settings=settings,
         )
     except PrincipalError as exc:
         events.emit(job_id, "pr.publish_failed", {"reason": exc.message})
@@ -796,6 +848,57 @@ def _security_scan_texts(
     return before, after
 
 
+def _new_file_diff(rel_path: str, content: str) -> str:
+    """A unified diff that creates `rel_path` from nothing, in the same
+    `/dev/null` + `a/`/`b/` shape `principal.diffs.parse_diff` already reads
+    everywhere else in this system — so `git apply` in `open_pr` treats it
+    exactly like any Coder-produced diff, with no special case.
+    """
+    lines = content.splitlines(keepends=True) or [""]
+    if not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    return "".join(difflib.unified_diff([], lines, fromfile="/dev/null", tofile=f"b/{rel_path}"))
+
+
+def _characterisation_diff(
+    store: Store, settings: Settings, job_id: str, graph_id: str, target_fqn: str,
+) -> str | None:
+    """The generated safety-net test, as a diff — or None if this job never
+    ran characterisation.
+
+    `_characterise` writes the test straight to a sandbox filesystem and
+    re-baselines the job onto it, which is what gate 3 needs to actually run
+    it against every subsequent candidate. Neither of those steps produces
+    anything `open_pr` knows how to publish: it builds the PR branch from a
+    pristine, uncharacterised checkout and applies diffs to it, so without
+    this the merged PR would carry the refactor but not the test that was
+    the entire justification for attempting it at all.
+    """
+    if not target_fqn:
+        return None
+    test_path = characterisation_path(target_fqn)
+    file_row = store.q1(
+        "SELECT id FROM file WHERE graph_id = ? AND path = ? AND is_test = 1", (graph_id, test_path)
+    )
+    if file_row is None:
+        return None
+    has_edge = store.q1(
+        "SELECT 1 FROM test_edge WHERE graph_id = ? AND test_file_id = ? AND source = 'characterisation'"
+        " LIMIT 1",
+        (graph_id, file_row["id"]),
+    )
+    if has_edge is None:
+        return None
+    art = store.q1(
+        "SELECT * FROM artifact WHERE job_id = ? AND kind = 'characterisation' ORDER BY rowid DESC LIMIT 1",
+        (job_id,),
+    )
+    if art is None:
+        return None
+    content = (settings.run_dir(job_id) / art["path"]).read_text(encoding="utf-8")
+    return _new_file_diff(test_path, content)
+
+
 def _uncovered_files(store: Store, graph_id: str, files: set[str]) -> list[str]:
     out = []
     for f in sorted(files):
@@ -807,3 +910,44 @@ def _uncovered_files(store: Store, graph_id: str, files: set[str]) -> list[str]:
         if not covered:
             out.append(f)
     return out
+
+
+def _characterisation_only_files(store: Store, graph_id: str, files: set[str]) -> list[str]:
+    """Files whose only test coverage is a generated characterisation test.
+
+    `_uncovered_files` cannot tell this apart from real coverage: a
+    characterisation edge satisfies "has some covering test" exactly like a
+    hand-written one, by construction (gate 3 has to treat them identically or
+    the whole feature is pointless). But characterise.py's own rule 4 says a
+    change verified only by generated tests must be *reported* as such, not
+    presented as ordinarily covered — and nothing upstream of the PR body ever
+    made that distinction, so it silently never happened. This is what closes
+    that gap: the one place that still has `source` on every test_edge row.
+    """
+    out: list[str] = []
+    for f in sorted(files):
+        symbols = store.symbols_in_files(graph_id, {f})
+        if not symbols:
+            continue  # already reported as uncovered
+        covered = store.tests_covering(graph_id, {s.id for s in symbols})
+        if not covered:
+            continue  # already reported as uncovered
+        if {row["source"] for row in covered} == {"characterisation"}:
+            out.append(f)
+    return out
+
+
+def _last_characterisation_result(store: Store, job_id: str) -> dict | None:
+    """The mutation score behind a characterisation-only file, if the job ran
+    that phase. Read from the event log rather than a dedicated row: the
+    result was already published there for the live console, and duplicating
+    it into another table would just be a second place for the two to drift
+    apart."""
+    row = store.q1(
+        "SELECT payload FROM event WHERE job_id = ? AND kind = 'characterise.result'"
+        " ORDER BY seq DESC LIMIT 1",
+        (job_id,),
+    )
+    if row is None:
+        return None
+    return json.loads(row["payload"])

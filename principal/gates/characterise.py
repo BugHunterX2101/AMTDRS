@@ -69,6 +69,12 @@ class CharacterisationResult:
     test_source: str | None = None
     mutation: MutationOutcome | None = None
     mutants_generated: int = 0
+    # The checkpoint from the validation run — after the test file was written
+    # and confirmed to pass against unmodified C0, before any mutant touched
+    # anything. The caller needs this to make the test physically exist in
+    # every image forked from here on; without it, the test that just proved
+    # itself trustworthy exists only inside a sandbox nobody keeps a handle to.
+    image: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -176,7 +182,7 @@ async def establish_safety_net(
 
     return CharacterisationResult(
         status="ok", test_path=test_path, test_source=test_source, mutation=outcome,
-        mutants_generated=len(mutants),
+        mutants_generated=len(mutants), image=validation.image,
     )
 
 

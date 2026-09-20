@@ -202,3 +202,9 @@ CREATE TABLE IF NOT EXISTS event (
   payload TEXT NOT NULL       -- JSON
 );
 CREATE INDEX IF NOT EXISTS event_job_seq ON event(job_id, seq);
+-- GET /jobs/{id} looks up the latest event of one kind ("radius.computed") and
+-- the dashboard polls it every 1.5s. On (job_id, seq) alone that is a reverse
+-- scan over every event the job has emitted, because the kind is not in the
+-- index — and the event it wants is written early, so the scan runs to the far
+-- end each time. With kind in the index it is a seek.
+CREATE INDEX IF NOT EXISTS event_job_kind_seq ON event(job_id, kind, seq);

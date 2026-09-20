@@ -54,7 +54,19 @@ async def job_event_stream(
             if settings.principal_slow_mo_ms:
                 await asyncio.sleep(settings.principal_slow_mo_ms / 1000)
             yield ServerSentEvent(id=str(ev.seq), event=ev.kind, data=_dumps(ev.payload))
+            max_seq = max(max_seq, ev.seq)
             if _terminal(ev.kind, ev.payload):
+                break
+            # This connection's queue overflowed, so events after this one are
+            # missing rather than merely late. Ending the response is what
+            # repairs it: EventSource reconnects with Last-Event-ID and the
+            # replay above refills the gap from the table, which lost nothing.
+            # Continuing would serve a stream with an undetectable hole in it.
+            if events.has_lagged(queue):
+                yield ServerSentEvent(
+                    id=str(max_seq), event="stream.resync",
+                    data=_dumps({"reason": "client fell behind; reconnect to replay from this seq"}),
+                )
                 break
     finally:
         events.unsubscribe(job_id, queue)

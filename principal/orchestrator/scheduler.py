@@ -56,6 +56,14 @@ class TaskContext:
     task_timeout_s: int
     sandbox_timeout_s: int
     max_repairs: int
+    # Where this job's artifacts live. Carried explicitly rather than assumed to
+    # be "runs/" relative to the process CWD: the API serves artifacts out of
+    # `settings.principal_runs_dir`, so a server started from any other
+    # directory — a container WORKDIR, a systemd unit, a configured volume —
+    # wrote every diff and test log somewhere the evidence endpoint could not
+    # find it, and the dashboard's click-through to evidence 404'd. Required,
+    # so no construction site can quietly reintroduce the CWD assumption.
+    runs_dir: Path
     # Benchmark arm A only. Scope and syntax stay enforced — they are structural
     # safety, not a verification opinion — but the tests verdict is forced to
     # ok so a single ungated candidate settles immediately. This measures what
@@ -188,7 +196,7 @@ async def _one_candidate(
     # something to start from even when every candidate died at a local gate.
     ctx.store.put_artifact(
         job_id=ctx.job_id, kind="diff", rel_path=f"attempts/{attempt.id}.diff",
-        content=diff.text, base_dir=Path("runs") / ctx.job_id, attempt_id=attempt.id,
+        content=diff.text, base_dir=ctx.runs_dir, attempt_id=attempt.id,
     )
 
     local_verdict, patched_text = await _apply_local_gates(ctx, task, diff)
@@ -212,7 +220,7 @@ async def _one_candidate(
     if run is not None:
         art_id = ctx.store.put_artifact(
             job_id=ctx.job_id, kind="test_log", rel_path=f"attempts/{attempt.id}.log",
-            content=getattr(run, "stdout", ""), base_dir=Path("runs") / ctx.job_id,
+            content=getattr(run, "stdout", ""), base_dir=ctx.runs_dir,
             attempt_id=attempt.id,
         )
 
@@ -225,20 +233,31 @@ async def _one_candidate(
     return attempt.id, verdict, run
 
 
-async def _first_green(coros: list) -> tuple[str, Verdict, object | None] | None:
+Outcome = tuple[str, Verdict, object | None]
+
+
+async def _first_green(coros: list) -> tuple[Outcome | None, list[Outcome]]:
+    """The winner if one went green, plus every candidate that settled red.
+
+    The failures are returned rather than discarded because the repair loop
+    needs one: the Repairer is built around a concrete stack trace, and a
+    cancelled loser leaves none behind.
+    """
     pending = {asyncio.create_task(c) for c in coros}
+    failures: list[Outcome] = []
     try:
         while pending:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 try:
-                    attempt_id, verdict, run = d.result()
+                    outcome = d.result()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("candidate coroutine raised: %s", exc)
                     continue
-                if verdict.ok:
-                    return attempt_id, verdict, run
-        return None
+                if outcome[1].ok:
+                    return outcome, failures
+                failures.append(outcome)
+        return None, failures
     finally:
         for p in pending:
             p.cancel()
@@ -280,7 +299,7 @@ async def _repair_once(
     )
     ctx.store.put_artifact(
         job_id=ctx.job_id, kind="diff", rel_path=f"attempts/{attempt.id}.diff",
-        content=diff.text, base_dir=Path("runs") / ctx.job_id, attempt_id=attempt.id,
+        content=diff.text, base_dir=ctx.runs_dir, attempt_id=attempt.id,
     )
     ctx.events.emit(ctx.job_id, "repair.classified", {
         "task_id": task.id, "attempt_id": attempt.id, "kind": kind.value,
@@ -333,7 +352,9 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
     ]
 
     try:
-        winner = await asyncio.wait_for(_first_green(coros), timeout=ctx.task_timeout_s)
+        winner, failures = await asyncio.wait_for(
+            _first_green(coros), timeout=ctx.task_timeout_s,
+        )
     except TimeoutError:
         return _discard(ctx, task, f"exceeded task timeout of {ctx.task_timeout_s}s")
 
@@ -343,7 +364,9 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
 
     # No first-attempt candidate went green. Repair with the most informative
     # failure: prefer a real test failure over a scope/syntax rejection.
-    last_diff, last_run = await _best_failure(ctx, task, coros_results=None)
+    seed = _best_failure(failures)
+    last_diff = _diff_of_attempt(ctx, seed[0]) if seed else None
+    last_run = seed[2] if seed else None
     n = candidates_per_task + 1
     for _ in range(ctx.max_repairs):
         try:
@@ -360,41 +383,51 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
     return _discard(ctx, task, "exhausted: no candidate or repair passed local tests")
 
 
-async def _best_failure(ctx: TaskContext, task: Task, coros_results) -> tuple[str | None, object | None]:
-    """After _first_green exhausts every candidate, recover the most useful diff
-    and test run to seed the repair loop. Reads the last attempt's artifact."""
-    del coros_results
-    rows = ctx.store.q(
-        "SELECT id FROM attempt WHERE task_id = ? ORDER BY rowid DESC LIMIT 1", (task.id,)
-    )
-    if not rows:
-        return None, None
-    attempt_id = rows[0]["id"]
+def _informativeness(outcome: Outcome) -> tuple[int, str]:
+    """How much a failed candidate gives the Repairer to work with.
+
+    A red test run carries the failing node ids and a structured report the
+    Repairer's prompt is built from. A scope or syntax rejection never reached
+    a sandbox and carries none of that, so seeding a repair from one hands the
+    model an empty trace and asks it to guess — which is what happened for
+    every first repair before this ranked instead of taking whichever attempt
+    happened to be written last.
+    """
+    attempt_id, _verdict, run = outcome
+    if run is None:
+        return 0, attempt_id
+    if getattr(run, "failing", None) or getattr(run, "report_json", ""):
+        return 2, attempt_id
+    return 1, attempt_id
+
+
+def _best_failure(failures: list[Outcome]) -> Outcome | None:
+    """The failure most worth repairing from, or None if nothing settled.
+
+    Ties break on attempt id so the same set of failures always seeds the same
+    repair, which is what keeps a rerun comparable to the run it repeats.
+    """
+    if not failures:
+        return None
+    return max(failures, key=_informativeness)
+
+
+def _diff_of_attempt(ctx: TaskContext, attempt_id: str) -> str | None:
     art = ctx.store.q1(
         "SELECT * FROM artifact WHERE attempt_id = ? AND kind = 'diff' ORDER BY rowid DESC LIMIT 1",
         (attempt_id,),
     )
-    diff_text = None
-    if art is not None:
-        try:
-            diff_text = (Path("runs") / ctx.job_id / art["path"]).read_text(encoding="utf-8")
-        except OSError:
-            diff_text = None
-    return diff_text, None
+    if art is None:
+        return None
+    try:
+        return (ctx.runs_dir / art["path"]).read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _verify_and_settle(ctx: TaskContext, task: Task, attempt_id: str, run: object) -> TaskResult:
     del run
-    art = ctx.store.q1(
-        "SELECT * FROM artifact WHERE attempt_id = ? AND kind = 'diff' ORDER BY rowid DESC LIMIT 1",
-        (attempt_id,),
-    )
-    diff_text = ""
-    if art is not None:
-        try:
-            diff_text = (Path("runs") / ctx.job_id / art["path"]).read_text(encoding="utf-8")
-        except OSError:
-            pass
+    diff_text = _diff_of_attempt(ctx, attempt_id) or ""
     attempt = ctx.store.get_attempt(attempt_id)
     ctx.store.update_task(task.id, state="verified", winning_attempt_id=attempt_id)
     ctx.events.emit(ctx.job_id, "task.settled", {"task_id": task.id, "winning_attempt_id": attempt_id})

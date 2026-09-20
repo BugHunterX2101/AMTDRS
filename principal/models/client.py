@@ -92,9 +92,11 @@ class ModelClient:
         chosen = protocol or self.protocol_for(model)
 
         estimate = sum(estimate_tokens(m.get("content", "")) for m in messages) + max_tokens
+        reserved = False
         if job_id is not None:
             try:
                 self.budget.reserve(job_id, estimate)
+                reserved = True
             except PrincipalError:
                 self.budget_refusals += 1
                 raise
@@ -103,8 +105,8 @@ class ModelClient:
         if self.cache is not None:
             cached = self.cache.get(key)
             if cached is not None:
-                if job_id is not None:
-                    self.budget.spend(job_id, cached.prompt_tokens, cached.completion_tokens)
+                if job_id is not None and reserved:
+                    self.budget.settle(job_id, estimate, cached.prompt_tokens + cached.completion_tokens)
                 return Completion(
                     text=cached.text, prompt_tokens=cached.prompt_tokens,
                     completion_tokens=cached.completion_tokens,
@@ -112,15 +114,28 @@ class ModelClient:
                     protocol=Protocol(cached.protocol), from_cache=True,
                 )
 
-        completion, downgraded_to = await self._call_with_retries(
-            model, messages, chosen, schema, temperature, max_tokens
-        )
+        try:
+            completion, downgraded_to, abandoned = await self._call_with_retries(
+                model, messages, chosen, schema, temperature, max_tokens
+            )
+        except Exception:
+            # The reservation was provisional spend against a call that never
+            # produced anything billable — refund it, or every failed call
+            # (a timeout, a 5xx that exhausts retries, a malformed diff) would
+            # permanently burn its estimate out of the job's real budget.
+            if job_id is not None and reserved:
+                self.budget.release(job_id, estimate)
+            raise
+
         if downgraded_to is not None:
             self.capability[model] = downgraded_to
             self.protocol_downgrades += 1
 
-        if job_id is not None:
-            self.budget.spend(job_id, completion.prompt_tokens, completion.completion_tokens)
+        if job_id is not None and reserved:
+            actual = (
+                completion.prompt_tokens + abandoned[0] + completion.completion_tokens + abandoned[1]
+            )
+            self.budget.settle(job_id, estimate, actual)
 
         if self.cache is not None:
             self.cache.put(
@@ -137,10 +152,14 @@ class ModelClient:
     async def _call_with_retries(
         self, model: str, messages: list[dict[str, Any]], protocol: Protocol,
         schema: type[BaseModel] | None, temperature: float, max_tokens: int,
-    ) -> tuple[Completion, Protocol | None]:
+    ) -> tuple[Completion, Protocol | None, tuple[int, int]]:
         downgraded_to: Protocol | None = None
         current = protocol
         attempts = 0
+        # Usage from attempts whose output was thrown away. Billed by the
+        # provider, so charged to the budget even though no caller sees it.
+        abandoned_prompt = 0
+        abandoned_completion = 0
         while True:
             attempts += 1
             shape = build_request(current, schema)
@@ -170,17 +189,17 @@ class ModelClient:
                 if exc.status_code == 429:
                     self.rate_limit_backoffs += 1
                     if attempts <= 3:
-                        await self._backoff(attempts)
+                        await self._backoff(attempts, retry_after=_retry_after(exc))
                         continue
                     raise PrincipalError(Code.MODEL_RATE_LIMITED, str(exc)) from exc
                 if exc.status_code >= 500 and attempts <= 3:
-                    await self._backoff(attempts)
+                    await self._backoff(attempts, retry_after=_retry_after(exc))
                     continue
                 raise PrincipalError(Code.MODEL_EMPTY_RESPONSE, f"HTTP {exc.status_code}: {exc}") from exc
             except RateLimitError as exc:
                 self.rate_limit_backoffs += 1
                 if attempts <= 3:
-                    await self._backoff(attempts)
+                    await self._backoff(attempts, retry_after=_retry_after(exc))
                     continue
                 raise PrincipalError(Code.MODEL_RATE_LIMITED, str(exc)) from exc
             except (APITimeoutError, httpx.TimeoutException) as exc:
@@ -195,34 +214,69 @@ class ModelClient:
             if used_fallback:
                 self.reasoning_fallback_count += 1
 
+            usage = parsed.usage
             if not raw.strip():
+                # A blank response was still generated and still billed. Carry
+                # its usage forward so the budget reflects what was actually
+                # spent rather than only what was eventually returned — a
+                # counter that undercounts is worse than no counter, because
+                # the whole point of the cap is that it cannot be overrun
+                # quietly.
+                if usage:
+                    abandoned_prompt += int(usage.prompt_tokens or 0)
+                    abandoned_completion += int(usage.completion_tokens or 0)
                 if attempts <= 3:
                     await self._backoff(attempts, base=0.5)
                     continue
                 raise ModelEmptyResponse(model)
 
-            usage = parsed.usage
             completion = Completion(
                 text=raw, prompt_tokens=int(usage.prompt_tokens) if usage else 0,
                 completion_tokens=int(usage.completion_tokens) if usage else estimate_tokens(raw),
                 used_reasoning_fallback=used_fallback, protocol=current,
             )
-            return completion, downgraded_to
+            return completion, downgraded_to, (abandoned_prompt, abandoned_completion)
 
-    async def _backoff(self, attempt: int, base: float = 1.0) -> None:
+    async def _backoff(self, attempt: int, base: float = 1.0, retry_after: float | None = None) -> None:
+        """Exponential with jitter, unless the server said how long to wait.
+
+        Guessing when `Retry-After` is present is wrong in both directions: too
+        short earns another 429 and burns a retry, too long adds dead time to
+        every rate-limited call in the run.
+        """
+        if retry_after is not None and retry_after > 0:
+            await asyncio.sleep(min(retry_after, 60.0))
+            return
         delay = base * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
         await asyncio.sleep(min(delay, 20.0))
 
+
+def _retry_after(exc: Exception) -> float | None:
+    """Seconds from a `Retry-After` header, if the response carried one."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("retry-after")
+        return float(raw) if raw is not None else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
     def _record_rate_headroom(self, headers: Any) -> None:
+        # Widened past AttributeError deliberately: a provider that sends a
+        # non-integer value here would otherwise turn a completed, already-paid-
+        # for call into an exception on the success path. Headroom is telemetry;
+        # it is never worth failing a good response over.
         try:
             rr = headers.get("x-ratelimit-remaining-requests")
             rt = headers.get("x-ratelimit-remaining-tokens")
-        except AttributeError:
+            if rr is not None:
+                self.rate_headroom.remaining_requests = int(rr)
+            if rt is not None:
+                self.rate_headroom.remaining_tokens = int(rt)
+        except (AttributeError, TypeError, ValueError):
             return
-        if rr is not None:
-            self.rate_headroom.remaining_requests = int(rr)
-        if rt is not None:
-            self.rate_headroom.remaining_tokens = int(rt)
 
     def counters(self) -> dict[str, int]:
         return {

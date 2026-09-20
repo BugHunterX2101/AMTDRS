@@ -169,6 +169,9 @@ def create_app() -> FastAPI:
                 async with mcp_app.router.lifespan_context(mcp_app):
                     yield
         finally:
+            events = getattr(app.state, "events", None)
+            if events is not None:
+                events.close()
             store.close()
 
     app = FastAPI(title="Principal", lifespan=lifespan)

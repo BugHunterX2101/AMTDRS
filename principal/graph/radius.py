@@ -83,20 +83,23 @@ def blast_radius(
         for edge in callers:
             if edge.caller_symbol_id:
                 nxt.add(edge.caller_symbol_id)
-        for row in importers:
-            radius.files.add(row["path"])
-            for sym in store.symbols_in_files(graph_id, {row["path"]}):
-                nxt.add(sym.id)
+
+        # Every path that enters the radius at this depth, resolved to symbols in
+        # one query rather than one per path. The previous shape issued a query
+        # per importer row — including repeats for a path already seen — which on
+        # a wide importer set is the dominant cost of computing a radius at all.
+        reached: set[str] = {row["path"] for row in importers}
 
         # Files that import the *module* containing anything in the frontier.
         # A module-level import binds no symbol, so without this step a file that
         # reaches the target through attribute access or a registry lookup never
         # enters the radius at all.
         frontier_files = _files_of_symbols(store, graph_id, frontier | {target.id})
-        for row in store.importers_of_files(graph_id, frontier_files):
-            radius.files.add(row["path"])
-            for sym in store.symbols_in_files(graph_id, {row["path"]}):
-                nxt.add(sym.id)
+        reached |= {row["path"] for row in store.importers_of_files(graph_id, frontier_files)}
+
+        radius.files |= reached
+        for sym in store.symbols_in_files(graph_id, reached):
+            nxt.add(sym.id)
 
         frontier = nxt - seen
         seen |= frontier
@@ -123,13 +126,18 @@ def blast_radius(
         )
 
     radius.symbols = seen
-    non_test = {p for p in radius.files if not _is_test(store, graph_id, p)}
+    is_test_by_path = store.test_flags_of(graph_id, radius.files)
+    non_test = {p for p in radius.files if not is_test_by_path.get(p, False)}
     if len(non_test) > cap:
         raise RadiusTooLarge(len(non_test), cap)
 
-    for row in store.tests_covering(graph_id, seen):
+    covering = store.tests_covering(graph_id, seen)
+    test_paths = store.paths_of_files({int(row["test_file_id"]) for row in covering})
+    for row in covering:
         radius.tests.append(row["nodeid"])
-        radius.test_files.add(store.path_of_file(row["test_file_id"]))
+        path = test_paths.get(int(row["test_file_id"]), "")
+        if path:
+            radius.test_files.add(path)
     radius.tests = sorted(set(radius.tests))
     radius.files = non_test
     radius.unresolved = _dedupe(radius.unresolved)
@@ -146,11 +154,6 @@ def _files_of_symbols(store: Store, graph_id: str, symbol_ids: set[int]) -> set[
         (graph_id, *sorted(symbol_ids)),
     )
     return {r["path"] for r in rows}
-
-
-def _is_test(store: Store, graph_id: str, path: str) -> bool:
-    r = store.q1("SELECT is_test FROM file WHERE graph_id = ? AND path = ?", (graph_id, path))
-    return bool(r["is_test"]) if r else False
 
 
 def _dedupe(items: list[dict[str, object]]) -> list[dict[str, object]]:

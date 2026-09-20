@@ -91,6 +91,17 @@ async def test_a_good_suite_clears_the_floor(sandbox, snapshot):
     assert result.mutation.score >= 0.60
     assert result.mutants_generated > 0
 
+    # The image the orchestrator re-baselines the job onto. Without a real
+    # checkpoint here, gate 3 would run every subsequent candidate against an
+    # image that never heard of the test that just proved itself trustworthy.
+    assert result.image
+    characterised = await sandbox.from_uuid(result.image)
+    check = await sandbox.run(
+        characterised, "cd /work && test -f tests/principal_characterisation/test_characterise_create.py",
+        disposable=True, timeout_s=60,
+    )
+    assert check.exit_code == 0, "the characterisation test must be physically present on the checkpoint"
+
 
 async def test_a_weak_suite_is_reported_as_insufficient_not_silently_accepted(sandbox, snapshot):
     baseline = await build_baseline(

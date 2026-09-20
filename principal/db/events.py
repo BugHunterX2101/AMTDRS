@@ -9,14 +9,22 @@ replaying the job.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from principal.db.store import Store
+
+# Open trace handles held at once. Only a handful of jobs are ever active
+# together; the cap exists so the dict cannot grow without bound.
+_MAX_OPEN_TRACES = 8
+
+# Rows per replay page. Large enough that an ordinary job replays in one
+# query, small enough that a long one does not materialise in a single list.
+_REPLAY_PAGE = 2000
 
 
 @dataclass(slots=True)
@@ -34,6 +42,12 @@ class EventLog:
         self.slow_mo_ms = slow_mo_ms
         self._subscribers: dict[str, set[asyncio.Queue[Event]]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
+        # `_after_write` can run on a worker thread (see `_offer`), while
+        # subscribe/unsubscribe run on the event loop. Without this, iterating
+        # the subscriber set can race a mutation of it.
+        self._guard = threading.Lock()
+        self._lagged: set[asyncio.Queue[Event]] = set()
+        self._trace_files: dict[str, TextIO] = {}
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         self._loop = loop or asyncio.get_running_loop()
@@ -77,7 +91,9 @@ class EventLog:
     def _after_write(self, job_id: str, seq: int, kind: str, payload: dict[str, Any]) -> None:
         self._append_trace(job_id, seq, kind, payload)
         ev = Event(seq=seq, job_id=job_id, kind=kind, payload=payload)
-        for q in list(self._subscribers.get(job_id, ())):
+        with self._guard:
+            targets = list(self._subscribers.get(job_id, ()))
+        for q in targets:
             self._offer(q, ev)
 
     def _offer(self, q: asyncio.Queue[Event], ev: Event) -> None:
@@ -87,36 +103,103 @@ class EventLog:
         except RuntimeError:
             running = None
         if running is not None:
-            with contextlib.suppress(asyncio.QueueFull):
-                q.put_nowait(ev)
+            self._put(q, ev)
         elif loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(lambda: q.put_nowait(ev))
+            loop.call_soon_threadsafe(self._put, q, ev)
+
+    def _put(self, q: asyncio.Queue[Event], ev: Event) -> None:
+        """Deliver, or record that this subscriber has fallen behind.
+
+        Dropping an event silently is not acceptable here: the trace is the
+        product's evidence, and a client cannot detect a hole in a stream it
+        never received. Marking the subscriber lagged instead lets the stream
+        close the connection, which sends the client back through replay from
+        its last seq — and replay reads the table, which never lost anything.
+        """
+        try:
+            q.put_nowait(ev)
+        except asyncio.QueueFull:
+            with self._guard:
+                self._lagged.add(q)
+
+    def has_lagged(self, q: asyncio.Queue[Event]) -> bool:
+        with self._guard:
+            return q in self._lagged
 
     def _append_trace(self, job_id: str, seq: int, kind: str, payload: dict[str, Any]) -> None:
         """One JSONL file per job. Publishing traces is most of the credibility
-        and it costs one function."""
-        d = self.runs_dir / job_id
-        d.mkdir(parents=True, exist_ok=True)
+        and it costs one function.
+
+        The handle is kept open and flushed per line rather than reopened per
+        event: this runs on every state change in the system, and mkdir + open
+        + close per event is three syscalls to write one line. Flushing keeps
+        the file complete for anyone reading it concurrently.
+        """
         line = json.dumps({"seq": seq, "kind": kind, "payload": payload}, default=str)
-        with (d / "trace.jsonl").open("a", encoding="utf-8") as fh:
+        with self._guard:
+            fh = self._trace_files.get(job_id)
+            if fh is None:
+                d = self.runs_dir / job_id
+                d.mkdir(parents=True, exist_ok=True)
+                fh = (d / "trace.jsonl").open("a", encoding="utf-8")
+                # Bounded, so a long-lived server running many jobs does not
+                # accumulate one descriptor per job it has ever seen. Reopening
+                # is append-mode, so an evicted job that writes again is fine.
+                while len(self._trace_files) >= _MAX_OPEN_TRACES:
+                    oldest = next(iter(self._trace_files))
+                    evicted = self._trace_files.pop(oldest)
+                    try:
+                        evicted.close()
+                    except OSError:
+                        pass
+                self._trace_files[job_id] = fh
             fh.write(line + "\n")
+            fh.flush()
+
+    def close(self) -> None:
+        with self._guard:
+            for fh in self._trace_files.values():
+                try:
+                    fh.close()
+                except OSError:
+                    pass
+            self._trace_files.clear()
 
     # ----------------------------------------------------------- reading ----
 
     def replay(self, job_id: str, after_seq: int = 0) -> Iterator[Event]:
-        for r in self.store.events_since(job_id, after_seq, limit=100_000):
-            yield Event(
-                seq=r["seq"], job_id=r["job_id"], kind=r["kind"], payload=json.loads(r["payload"])
-            )
+        """Every event after `after_seq`, in pages.
+
+        Paged rather than one big LIMIT because replay is the resume guarantee:
+        a single capped query silently stops at the cap, and a client that
+        reconnects into a truncated replay has a hole it cannot see. Paging
+        ends only when the table is genuinely exhausted.
+        """
+        cursor = after_seq
+        while True:
+            rows = self.store.events_since(job_id, cursor, limit=_REPLAY_PAGE)
+            if not rows:
+                return
+            for r in rows:
+                cursor = max(cursor, int(r["seq"]))
+                yield Event(
+                    seq=r["seq"], job_id=r["job_id"], kind=r["kind"],
+                    payload=json.loads(r["payload"]),
+                )
+            if len(rows) < _REPLAY_PAGE:
+                return
 
     def subscribe(self, job_id: str) -> asyncio.Queue[Event]:
         q: asyncio.Queue[Event] = asyncio.Queue(maxsize=4096)
-        self._subscribers.setdefault(job_id, set()).add(q)
+        with self._guard:
+            self._subscribers.setdefault(job_id, set()).add(q)
         return q
 
     def unsubscribe(self, job_id: str, q: asyncio.Queue[Event]) -> None:
-        subs = self._subscribers.get(job_id)
-        if subs:
-            subs.discard(q)
-            if not subs:
-                self._subscribers.pop(job_id, None)
+        with self._guard:
+            self._lagged.discard(q)
+            subs = self._subscribers.get(job_id)
+            if subs:
+                subs.discard(q)
+                if not subs:
+                    self._subscribers.pop(job_id, None)

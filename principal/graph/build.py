@@ -94,6 +94,10 @@ def build(store: Store, snapshot: Path, repo_url: str, commit_sha: str, *, rebui
         resolver = Resolver(parsed)
         module_of = {rel: _module_name(rel, pf.lang) for rel, pf in parsed.items()}
         symbol_count = 0
+        # Which file each symbol id was defined in. Recorded as the rows are
+        # written so the test-edge pass below does not have to ask the database
+        # once per binding for something this loop already knew.
+        file_of_symbol: dict[int, int] = {}
         for rel, pf in parsed.items():
             for d in pf.definitions:
                 fqn = ".".join(filter(None, (module_of[rel], d.parent, d.name)))
@@ -106,6 +110,7 @@ def build(store: Store, snapshot: Path, repo_url: str, commit_sha: str, *, rebui
                 sid = int(cur.lastrowid or 0)
                 if sid:
                     symbol_count += 1
+                    file_of_symbol[sid] = file_ids[rel]
                     resolver.register(rel, d.name, sid)
                     if d.parent:
                         resolver.register(rel, f"{d.parent}.{d.name}", sid)
@@ -154,10 +159,8 @@ def build(store: Store, snapshot: Path, repo_url: str, commit_sha: str, *, rebui
             if not pf.is_test:
                 continue
             for name, sid in resolver.local_bindings(rel).items():
-                row = conn.execute(
-                    "SELECT file_id FROM symbol WHERE id = ?", (sid,)
-                ).fetchone()
-                if row is None or row[0] == file_ids[rel]:
+                defined_in = file_of_symbol.get(sid)
+                if defined_in is None or defined_in == file_ids[rel]:
                     continue
                 conn.execute(
                     "INSERT INTO test_edge (graph_id, test_file_id, symbol_id, nodeid, source)"

@@ -45,6 +45,29 @@ def baseline_tag(repo_url: str, commit_sha: str) -> str:
     return f"principal/{slug}@{commit_sha[:12]}"
 
 
+# Serializes concurrent builds of the same snapshot destination. The hosted
+# demo's whole point is running with zero credentials against one bundled
+# fixture repo at one fixed commit, which means concurrent visitors are
+# expected to hit this function with the *identical* (repo_url, commit_sha)
+# at close to the same instant — the single most likely traffic pattern this
+# function sees, not a rare edge case. Without a lock, two such calls race
+# rmtree/copytree/clone into the same directory: one job's checkout can be
+# deleted mid-write by another job's rmtree, corrupting both. Keyed by
+# destination rather than one global lock, so unrelated repos or commits still
+# build fully in parallel.
+_snapshot_locks: dict[str, asyncio.Lock] = {}
+_snapshot_locks_guard = asyncio.Lock()
+
+
+async def _lock_for(key: str) -> asyncio.Lock:
+    async with _snapshot_locks_guard:
+        lock = _snapshot_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _snapshot_locks[key] = lock
+        return lock
+
+
 async def ensure_snapshot(repo_url: str, commit_sha: str, dest_root: Path) -> Path:
     """A local copy of the tree at this commit, for parsing and for gates 1 and 2.
 
@@ -53,39 +76,41 @@ async def ensure_snapshot(repo_url: str, commit_sha: str, dest_root: Path) -> Pa
     is affordable.
     """
     dest = dest_root / f"{_slug(repo_url)}@{commit_sha[:12]}"
-    if (dest / ".principal-ok").exists():
-        return dest
+    async with await _lock_for(str(dest)):
+        if (dest / ".principal-ok").exists():
+            return dest
 
-    local = Path(repo_url)
-    if local.exists() and local.is_dir():
+        local = Path(repo_url)
+        if local.exists() and local.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(local, dest, ignore=shutil.ignore_patterns(".git", ".venv", "node_modules"))
+            if not (dest / ".git").exists():
+                # Publishing and the gates' local git operations both assume a
+                # real repo. A fixture copied straight off disk has no history,
+                # so give it one commit to apply diffs and open PRs against,
+                # uniformly with the cloned-from-remote path below.
+                await _git("-C", str(dest), "init", "--quiet", "-b", "main")
+                await _git("-C", str(dest), "config", "user.email", "principal@localhost")
+                await _git("-C", str(dest), "config", "user.name", "Principal")
+                await _git("-C", str(dest), "add", "-A")
+                await _git("-C", str(dest), "commit", "--quiet", "-m", f"snapshot at {commit_sha}")
+                # A local fixture has no real commit history, so the caller's
+                # commit_sha is not an actual git object. Tagging the one
+                # commit with it lets `git checkout <commit_sha>` inside the
+                # sandbox script work the same way it would against a real
+                # cloned remote.
+                await _git("-C", str(dest), "tag", "-f", commit_sha)
+            (dest / ".principal-ok").write_text(commit_sha, encoding="utf-8")
+            return dest
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
             shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(local, dest, ignore=shutil.ignore_patterns(".git", ".venv", "node_modules"))
-        if not (dest / ".git").exists():
-            # Publishing and the gates' local git operations both assume a real
-            # repo. A fixture copied straight off disk has no history, so give
-            # it one commit to apply diffs and open PRs against, uniformly with
-            # the cloned-from-remote path below.
-            await _git("-C", str(dest), "init", "--quiet", "-b", "main")
-            await _git("-C", str(dest), "config", "user.email", "principal@localhost")
-            await _git("-C", str(dest), "config", "user.name", "Principal")
-            await _git("-C", str(dest), "add", "-A")
-            await _git("-C", str(dest), "commit", "--quiet", "-m", f"snapshot at {commit_sha}")
-            # A local fixture has no real commit history, so the caller's
-            # commit_sha is not an actual git object. Tagging the one commit
-            # with it lets `git checkout <commit_sha>` inside the sandbox script
-            # work the same way it would against a real cloned remote.
-            await _git("-C", str(dest), "tag", "-f", commit_sha)
+        await _git("clone", "--filter=blob:none", "--quiet", repo_url, str(dest))
+        await _git("-C", str(dest), "checkout", "--quiet", commit_sha)
         (dest / ".principal-ok").write_text(commit_sha, encoding="utf-8")
         return dest
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
-    await _git("clone", "--filter=blob:none", "--quiet", repo_url, str(dest))
-    await _git("-C", str(dest), "checkout", "--quiet", commit_sha)
-    (dest / ".principal-ok").write_text(commit_sha, encoding="utf-8")
-    return dest
 
 
 def clone_source(repo_url: str, snapshot: Path) -> str:

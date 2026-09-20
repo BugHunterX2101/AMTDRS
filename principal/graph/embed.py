@@ -13,6 +13,7 @@ implementation at this scale. No vector database is needed for 2,000 files.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import re
@@ -49,6 +50,13 @@ class ConventionIndex:
         self._matrix: np.ndarray | None = None
         self._docs: list[str] = []
         self._vocab: dict[str, int] = {}
+        # One index is shared by every task in a wave, and WaveRunner runs a
+        # wave's tasks concurrently. Without this, each task's first query()
+        # sees an unbuilt matrix at the same instant and triggers its own
+        # build() — for the embedder path that is the same embedding request
+        # fired once per concurrent task instead of once per job, paying for
+        # and rate-limiting against work that was already in flight.
+        self._build_lock = asyncio.Lock()
 
     def _read(self, rel: str, limit: int = 4000) -> str:
         try:
@@ -94,7 +102,13 @@ class ConventionIndex:
 
     async def query(self, description: str, k: int = 2, exclude: set[str] | None = None) -> list[Example]:
         if self._matrix is None:
-            await self.build()
+            async with self._build_lock:
+                # Re-check inside the lock: the task that was already building
+                # while this one waited has finished by the time it's granted,
+                # and building a second time would be exactly the duplicate
+                # work the lock exists to prevent.
+                if self._matrix is None:
+                    await self.build()
         assert self._matrix is not None
         if self.embedder is not None:
             q = np.asarray(await self.embedder([description]), dtype=np.float32)

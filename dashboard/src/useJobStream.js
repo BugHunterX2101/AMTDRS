@@ -204,12 +204,12 @@ export function useJobStream(jobId) {
     const kinds = [
       "job.state", "job.stopped", "baseline.operation", "baseline.ready",
       "graph.built", "radius.computed", "characterise.operation",
-      "characterise.result", "plan.ready", "attempt.started",
+      "characterise.result", "characterise.rebaselined", "plan.ready", "attempt.started",
       "attempt.verdict", "repair.classified", "repair.test_expectation",
       "task.settled", "cleanup.planned", "cleanup.tasks_created",
       "cleanup.operation", "cleanup.result", "cleanup.skipped",
       "integration.operation", "integration.conflict", "integration.result",
-      "security.result", "pr.opened", "pr.publish_failed",
+      "security.result", "pr.opened", "pr.publish_failed", "stream.resync",
     ];
     for (const k of kinds) es.addEventListener(k, handle(k));
 

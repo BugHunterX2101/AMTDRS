@@ -199,10 +199,10 @@ Two mature categories already address parts of this problem. Neither covers the 
 
 | | **Coding agents**<br>(Codex, Claude Code, Cursor, Devin) | **Deterministic mass refactoring**<br>([OpenRewrite](https://docs.openrewrite.org/) / [Moderne](https://moderne.ai/)) | **Principal** |
 |---|---|---|---|
-| Handles a *novel*, bespoke refactor | ✅ yes | ❌ needs a pre-written recipe | ✅ yes |
+| Handles a *novel*, bespoke refactor | yes | no — needs a pre-written recipe | yes |
 | Correctness signal | human review | AST transform is correct by construction | **real test-suite exit code** |
 | Will it ship something unverified? | yes — that is what review is for | no | **no — fails closed** |
-| Scales across many repos | partially | ✅ its whole design | one repo per job |
+| Scales across many repos | partially | yes — its whole design | one repo per job |
 | Measured ceiling on wide refactors | ~59 on SWE Atlas | n/a — not a model | gated by the same models, but **races several attempts** |
 
 - **Coding agents** — general but unverified.
@@ -563,8 +563,8 @@ Claims in a hackathon README are cheap. These are the commands that make them ex
 
 Principal runs its entire **deterministic half** with **no Nebius account at all** — against a bundled fixture repository of 14 Python modules, using an in-process sandbox that executes real `git` and real `pytest`.
 
-- ✅ **What you get for free:** a genuinely verified green baseline, real per-test coverage, a real tree-sitter code graph, a real blast radius.
-- ⛔ **Where it stops:** planning — generating a patch needs an inference key.
+- **What you get for free:** a genuinely verified green baseline, real per-test coverage, a real tree-sitter code graph, a real blast radius.
+- **Where it stops:** planning — generating a patch needs an inference key.
 
 That boundary is deliberate, and it is the useful one — **everything you can check for free is the half a model cannot fake.**
 

@@ -13,79 +13,37 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 | **Repository** | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) |
 | **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — landing page at `/`, operator console at `/app/`; baseline, code graph and blast radius run with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
 | **Demo video** | *(3 minutes — see [`docs/DEMO_VIDEO.md`](docs/DEMO_VIDEO.md) for the shot list)* |
-| **Verification** | 113 tests passing · ruff clean · 3/3 architecture contracts held — [reproduce every number](#every-claim-in-this-readme-and-how-to-check-it) |
+| **Verification** | `pytest -q` → 113 passed · `ruff check` → clean · `lint-imports` → 3/3 contracts held |
 
 ---
 
 ## Contents
 
-- [The business case](#the-business-case) — why this problem is worth money
+- [The problem](#the-problem) — why this is worth solving
 - [Why *wide* refactors specifically](#why-wide-refactors-specifically) — where the measured gap is
 - [The approach](#the-approach) — many cheap attempts, one hard gate
 - [What a run costs](#what-a-run-costs) — real unit economics, real list prices
 - [Where this sits in the market](#where-this-sits-in-the-market) — honest competitive position
 - [Architecture](#architecture) — diagrams, decisions, and the code to read
 - [How NVIDIA models and Nebius services are used](#how-nvidia-models-and-nebius-services-are-used)
-- [Every claim in this README, and how to check it](#every-claim-in-this-readme-and-how-to-check-it)
 - [Quickstart — no credentials needed](#quickstart--no-credentials-needed)
 - [Running it](#running-it) · [Deploying](#deploying-the-hosted-demo) · [Safety](#safety)
 
 ---
 
-## The business case
+## The problem
 
-### The bottleneck moved, and the tools did not
-
-Three independent bodies of evidence say the same thing about where 2026 engineering money actually goes.
-
-- **Technical debt is a top-line budget item, not a backlog label.**
-  - Deloitte's 2026 Global Technology Leadership Study puts it at **21–40% of total IT spend**; McKinsey's estimate lands in the same 20–40% band.
-  - CAST's 2025 *Coding in the Red* analysis of **10 billion lines across 47,000 applications** found **45% of that code is fragile** and **31% too rigid to change without breaking something**.
-  - This is not a niche complaint — it is the single largest discretionary line in most engineering budgets.
-
-- **AI adoption already happened. Trust did not follow.** *(Stack Overflow Developer Survey 2026)*
-  - **84%** of developers now use AI tools.
-  - **29%** trust the accuracy of what they produce — down from 40% the prior year.
-  - **46%** actively distrust it.
-  - **45%** name *"AI solutions that are almost right, but not quite"* as their single biggest frustration.
-  - **66%** report spending more time fixing almost-right AI code than they saved generating it.
-
-- **Speed without verification makes things worse.** *(Google DORA 2025)*
-  - **90%** of organizations have adopted AI in software development.
-  - AI acts as an **amplifier**: it raises throughput *and* raises instability.
-  - Faster generation into a weak verification system produces more unreviewed change, not more shipped value.
-
-Read together, these are one finding:
-
-> **Generation is solved and cheap. Verification is unsolved and expensive, and it is now the constraint.**
-
-Every additional line of plausible-looking generated code adds review load, and review load is paid in senior engineering hours — the most expensive input a software organization buys.
-
-### The specific, expensive job this targets
-
-Not all technical debt is equal. The kind that costs real money has a shape:
+The kind of technical debt that costs real money has a specific shape:
 
 > A signature change that touches **forty call sites across nine modules**, where being right in eight modules and wrong in the ninth is *worse than not starting* — because now a human must review a large diff to find the one mistake.
 
-- **What it looks like concretely:**
-  - deprecating a parameter, or making an argument keyword-only
-  - renaming a widely-used internal API
-  - threading a new context object through a call chain
-  - migrating off a retired helper
+Deprecating a parameter, renaming a widely-used internal API, threading a new context object through a call chain — these tasks block framework upgrades and sit in a "modernization" epic for quarters, because the diff is too wide to review confidently and too mechanical to be interesting. The cost is concentrated in **review**, not in writing the patch, which is why the market evidence points the same direction:
 
-- **Why these specific tasks rot:** they block framework upgrades, sit in a "modernization" epic for four quarters, and every engineer avoids them — the diff is too wide to review confidently and too mechanical to be interesting.
+- Technical debt runs **21–40% of total IT spend** ([Deloitte 2026](https://www.deloitte.com/us/en/insights/topics/leadership/global-technology-leadership-study.html); McKinsey estimates the same band).
+- **84%** of developers now use AI coding tools, but only **29%** trust the accuracy of what it produces, and **45%** name *"almost right, but not quite"* as their top frustration ([Stack Overflow 2026](https://stackoverflow.blog/2026/02/18/closing-the-developer-ai-trust-gap/)).
+- AI adoption raises throughput **and** instability together — it amplifies existing process quality rather than fixing it ([Google DORA 2025](https://dora.dev/dora-report-2025/)).
 
-- **Who has this problem:** platform, infrastructure and developer-experience teams at organizations with codebases large enough that a cross-cutting change is a project rather than an afternoon.
-
-- **Where the cost actually sits:** a wide refactor is not expensive because it is hard to *write* — it is expensive because it is hard to *trust*. The money goes to review, and to the risk of a partial migration reaching production.
-
-### What Principal actually sells
-
-- **Not generated code — a verified decision.** Anyone can generate a forty-file diff today; the frontier models are good at it. Nobody can currently hand you one with a machine-checkable guarantee that it does not break the suite, produced without a human babysitting the loop.
-
-- **`NoPR` is a product feature with direct financial value.** It means: *"I tried, here is exactly what I tried, I could not verify it, and I am not going to waste your review time."* That converts an unbounded review task back into a bounded one.
-
-- **Why half-measures are worth less than nothing.** A refactoring tool that *sometimes* ships an unverified change poisons every diff it produces with the possibility that this is one of the bad ones.
+**Generation is solved and cheap. Verification is unsolved and expensive, and it is now the constraint.** `NoPR` — *"I tried, here is what I tried, I could not verify it, so I am not shipping it"* — is a success state with direct financial value: it converts an unbounded review task back into a bounded one. A tool that *sometimes* ships an unverified change is worth less than no tool at all, because it poisons every diff it produces with the possibility that this is one of the bad ones.
 
 ---
 
@@ -162,9 +120,7 @@ Gates 1 and 2 never touch a sandbox. Most bad candidates die there, which is exa
 
 ## What a run costs
 
-The economics are the reason the architecture is shaped this way, so here they are with real numbers rather than adjectives.
-
-**Published Nebius Token Factory list prices, read 2026-09-20:**
+Published Nebius Token Factory list prices, read 2026-09-20:
 
 | Tier | Model | Input / 1M | Output / 1M |
 |---|---|---:|---:|
@@ -172,24 +128,14 @@ The economics are the reason the architecture is shaped this way, so here they a
 | Super | `nvidia/nemotron-3-super-120b-a12b` | $0.30 | $0.90 |
 | Ultra | `nvidia/Nemotron-3-Ultra-550b-a55b` | $1.00 | $3.00 |
 
-Principal ships a **default per-job budget of 2,000,000 tokens** (`token_budget_default`, [`principal/config.py`](principal/config.py)), enforced by a reserve-and-refuse budget manager that **refuses rather than truncates**. That default gives a hard, arithmetic ceiling on what one job can cost:
+Principal ships a **default per-job budget of 2,000,000 tokens** (`token_budget_default`, [`principal/config.py`](principal/config.py)), enforced by a reserve-and-refuse manager that **refuses rather than truncates**:
 
-- **Pathological worst case** — every one of the 2M tokens billed as Ultra *output*: **$6.00**.
-- **Realistic shape** — planning is *one* Ultra call per job; candidate generation is Nano, which is where nearly all volume lives (3 candidates × up to 12 tasks); repair is Super and only fires on a red candidate. A Nano-dominated 2M-token mix lands **well under $1**.
+- **Worst case** — every token billed as Ultra output: **$6.00**.
+- **Realistic case** — planning is one Ultra call per job, and Nano-dominated candidate generation carries nearly all the volume: **well under $1**.
 
-Set against the human cost of the same job:
+Against **$85–110/hour** fully loaded US engineering time and a half-day-to-two-day wide refactor, that is several hundred to a couple of thousand dollars of review and risk per job. Principal does not remove the reviewer — a human still merges — but the reviewer is no longer auditing forty edits hunting for one mistake; they are sanity-checking a change that already passed a real suite in a real sandbox. **The interesting number isn't the token cost — it's that the cost of a wrong attempt fell to zero**, because it died in a private fork nobody reviews.
 
-- US in-house mid-to-senior engineering time runs roughly **$85–110/hour** fully loaded in 2026.
-- A wide refactor — write it, chase the call sites, fix what broke, then get it reviewed — is conservatively **a half-day to two days** of engineer *plus* reviewer time.
-- That is **several hundred to a couple of thousand dollars** of the most expensive input a software organization buys.
-
-**The honest framing:**
-
-- Principal **does not remove the reviewer.** The reviewer is inside the trust boundary by design, and a human still merges.
-- What it removes is the **unbounded part** of the review: the reviewer is no longer auditing forty edits hunting for one mistake, they are sanity-checking a change that already passed a real suite in a real sandbox, with per-candidate evidence attached.
-- **The token cost is not the interesting number.** The interesting number is that **the cost of being wrong fell to zero** — wrong attempts die in a private fork that nobody reviews and nothing ever sees.
-
-> These are list prices and public salary ranges, not a customer case study. No production deployment has been measured. The arithmetic above is reproducible; the ROI claim is a reasoned argument from it, and is labelled as such deliberately.
+> List prices and public salary ranges, not a customer case study — no production deployment has been measured.
 
 ---
 
@@ -205,18 +151,9 @@ Two mature categories already address parts of this problem. Neither covers the 
 | Scales across many repos | partially | yes — its whole design | one repo per job |
 | Measured ceiling on wide refactors | ~59 on SWE Atlas | n/a — not a model | gated by the same models, but **races several attempts** |
 
-- **Coding agents** — general but unverified.
-  - They produce a diff and hand you the review problem.
-  - The SWE Atlas number above is the measured ceiling on that approach for this task class.
-
-- **OpenRewrite / Moderne** — the serious incumbent, and proof the market is real.
-  - Moderne raised a **$30M Series B in February 2025** (Acrew Capital, with Intel Capital, Amex Ventures, Morgan Stanley and others) explicitly to attack enterprise technical debt.
-  - Their approach is deterministic AST transformation via recipes: exceptionally safe and auditable.
-  - But it **requires someone to have written the recipe first** — excellent for the hundredth JUnit-4-to-5 migration, structurally unable to help with the one-off signature change nobody has ever written a recipe for.
-
-- **Principal takes the third position** — LLM generality for the diff, deterministic machinery for the decision.
-  - The model proposes; a real test run in a real sandbox disposes.
-  - The contribution is not the model and not the gate, but the fact that **no model sits anywhere in the accept path**.
+- **Coding agents** are general but unverified — they produce a diff and hand you the review problem.
+- **OpenRewrite / Moderne** is the serious incumbent ([$30M Series B, Feb 2025](https://techcrunch.com/2025/02/11/moderne-raises-30m-to-solve-technical-debt-across-complex-codebases/), proof the market is real): deterministic AST transforms are exceptionally safe, but **require someone to have written the recipe first**.
+- **Principal takes the third position:** LLM generality for the diff, deterministic machinery for the decision — the model proposes, a real test run in a real sandbox disposes.
 
 ---
 
@@ -521,41 +458,6 @@ Documented beta service limits: **50 concurrent operations**, **180-day checkpoi
 | NVIDIA Nemotron 3 Nano / Super / Ultra | candidates / repairs / planning |
 
 Detailed, specific engineering feedback on all of the above — **nine issues ranked by what they cost**, several verified against the installed SDK source rather than the docs — is in **[`docs/FEEDBACK.md`](docs/FEEDBACK.md)**.
-
----
-
-## Every claim in this README, and how to check it
-
-Claims in a hackathon README are cheap. These are the commands that make them expensive to fake. Every row was re-run on **2026-09-20** against the committed tree.
-
-| Claim | Command | Result |
-|---|---|---|
-| 113 tests pass | `pytest -q` | `113 passed` |
-| No lint violations | `ruff check principal mcp_code_graph bench tests spikes` | `All checks passed!` |
-| No model in the accept path (+2 more contracts) | `lint-imports` | `Contracts: 3 kept, 0 broken` |
-| Blast radius finds 7 source files | `principal radius --repo tests/fixtures/mini_repo --commit deadbeef --target src.auth.session.create` | `files: 7` |
-| …and 24 call sites, 14 of which name `create` (8 in `src/`) | same command | `call_sites: 24` |
-| …and exactly 2 genuinely unresolvable dynamic dispatches | same command | both in `src/registry.py`, lines 14–15 |
-| …at reverse-BFS depth 3 | same command | `depth_reached: 3` |
-| Fixture repo is 14 Python modules with a green suite | `pytest tests/fixtures/mini_repo --collect-only -q` | `14 tests collected` |
-| Adversarial corpus is 10 named diffs with asserted verdicts | `ls tests/fixtures/diffs/` | 10 files, incl. `correct.diff` which must **pass** |
-| 8 HTTP endpoints | `grep '@router\.' principal/api/routes.py` | 8 routes |
-| 5 read-only MCP tools, no write tool | `mcp_code_graph/tools.py` | `find_symbol`, `callers_of`, `blast_radius`, `tests_covering`, `read_span` |
-| SWE Atlas leader at 59.05 | [labs.scale.com](https://labs.scale.com/leaderboard/sweatlas-refactoring) | re-read 2026-09-20 |
-| Default budget cannot exceed $6.00/job | `token_budget_default = 2_000_000` × $3.00/1M Ultra output | arithmetic, worst case |
-
-**Scale of the thing, for calibration:**
-
-- **~7,300 lines of Python** across `principal/`, `mcp_code_graph/` and `bench/`
-- **~1,300 lines** of tests
-- **~4,600 lines** of dashboard
-
-**What is *not* claimed**, stated plainly because a README that only lists strengths is not evidence:
-
-- **No production deployment has been measured.** The ROI argument above is arithmetic from list prices and public salary ranges, not a case study.
-- **`bench/tasks.json` currently pins one task**, not a suite. The harness ([`bench/harness.py`](bench/harness.py)) drives a real `run_job()` per `(task, arm)` and re-verifies independently, and it takes as many tasks as you add — but the published task set is one, and calling it a benchmark suite today would be overstating it.
-- **Gate 3 is Python-only.** The code graph parses TypeScript (there is a `typescript.scm` grammar and the graph/radius work), but test execution is `pytest`. TypeScript stops at static analysis.
-- **Residual risks are enumerated, not waved away**, in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — an untested private symbol can still be deleted; sandbox network egress is not yet disableable through the platform SDK.
 
 ---
 
@@ -928,6 +830,13 @@ AMTDRS/
 - **Fail closed.** No green test, no PR — always.
 - **Every claim named and tested.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the residual risks a verification system this size cannot fully close, rather than implying there are none.
 
+**What is not claimed**, stated plainly:
+
+- No production deployment has been measured — the cost argument above is arithmetic from list prices, not a case study.
+- `bench/tasks.json` currently pins **one task**, not a suite.
+- Gate 3 (test execution) is **Python-only**; the code graph parses TypeScript, but static analysis is where it stops.
+- An untested private symbol can still be deleted, and sandbox network egress is not yet disableable through the platform SDK.
+
 ## Project provenance
 
 - Principal was **created entirely during the hackathon submission period** (26 August – 30 October 2026).
@@ -946,22 +855,6 @@ AMTDRS/
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Engineering design document |
 | [`docs/SPEC.md`](docs/SPEC.md) | Technical specification |
-
-## Sources
-
-Market and benchmark figures cited above, with the dates they were read.
-
-| Claim | Source |
-|---|---|
-| Technical debt is 21–40% of IT spend | [Deloitte 2026 Global Technology Leadership Study](https://www.deloitte.com/us/en/insights/topics/leadership/global-technology-leadership-study.html) |
-| 45% of code fragile, 10B LOC / 47k apps | [CAST, *Coding in the Red* (2025)](https://www.castsoftware.com/) |
-| 84% AI adoption · 29% trust · 46% distrust · 45% "almost right" | [Stack Overflow Developer Survey 2026](https://stackoverflow.blog/2026/02/18/closing-the-developer-ai-trust-gap/) |
-| 90% org adoption; AI amplifies throughput *and* instability | [DORA, *State of AI-assisted Software Development* 2025](https://dora.dev/dora-report-2025/) |
-| SWE Atlas Refactoring leaderboard, 70 tasks / 10 repos / 6 languages | [Scale AI Labs](https://labs.scale.com/leaderboard/sweatlas-refactoring) |
-| Nemotron 3 list pricing on Token Factory | [Nebius Token Factory — Nemotron](https://nebius.com/services/token-factory/nemotron) |
-| Sandboxes: microVM per sandbox, 50 concurrent ops, 180-day retention | [Token Factory Sandboxes docs](https://docs.tokenfactory.nebius.com/sandboxes/overview) |
-| US engineer hourly cost $85–110 fully loaded | [2026 software development rate surveys](https://www.fullstack.com/labs/resources/blog/software-development-price-guide-hourly-rate-comparison) |
-| Moderne $30M Series B for enterprise code modernization | [GlobeNewswire, Feb 2025](https://www.globenewswire.com/news-release/2025/02/11/3024163/0/en/moderne-secures-30m-to-drive-billions-in-enterprise-code-modernization-savings-based-on-its-innovative-tech-used-by-aws-microsoft-and-broadcom-ai-assistants.html) · [TechCrunch](https://techcrunch.com/2025/02/11/moderne-raises-30m-to-solve-technical-debt-across-complex-codebases/) |
 
 ## License
 

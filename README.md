@@ -38,13 +38,28 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 
 Three independent bodies of evidence say the same thing about where 2026 engineering money actually goes.
 
-**Technical debt is a top-line budget item, not a backlog label.** Deloitte's 2026 Global Technology Leadership Study puts technical debt at **21–40% of total IT spend**; McKinsey's estimate of tech debt as a share of the technology estate lands in the same 20–40% band. CAST's 2025 *Coding in the Red* analysis of **10 billion lines of code across 47,000 applications** found **45% of that code is fragile** and **31% too rigid to change without breaking something**. This is not a niche complaint. It is the single largest discretionary line in most engineering budgets.
+- **Technical debt is a top-line budget item, not a backlog label.**
+  - Deloitte's 2026 Global Technology Leadership Study puts it at **21–40% of total IT spend**; McKinsey's estimate lands in the same 20–40% band.
+  - CAST's 2025 *Coding in the Red* analysis of **10 billion lines across 47,000 applications** found **45% of that code is fragile** and **31% too rigid to change without breaking something**.
+  - This is not a niche complaint — it is the single largest discretionary line in most engineering budgets.
 
-**AI adoption already happened. Trust did not follow.** Stack Overflow's 2026 Developer Survey reports **84% of developers now use AI tools** while **only 29% trust the accuracy of what they produce** — down from 40% the prior year — and **46% actively distrust it**. The single most-cited frustration, named by **45% of respondents**, is *"AI solutions that are almost right, but not quite,"* with **66% reporting they spend more time fixing almost-right AI code** than they saved generating it.
+- **AI adoption already happened. Trust did not follow.** *(Stack Overflow Developer Survey 2026)*
+  - **84%** of developers now use AI tools.
+  - **29%** trust the accuracy of what they produce — down from 40% the prior year.
+  - **46%** actively distrust it.
+  - **45%** name *"AI solutions that are almost right, but not quite"* as their single biggest frustration.
+  - **66%** report spending more time fixing almost-right AI code than they saved generating it.
 
-**Speed without verification makes things worse.** Google's 2025 DORA *State of AI-assisted Software Development* report, covering an ecosystem where **90% of organizations have adopted AI**, found that AI acts as an **amplifier**: it raises throughput *and* raises instability. Faster generation into a weak verification system produces more unreviewed change, not more shipped value.
+- **Speed without verification makes things worse.** *(Google DORA 2025)*
+  - **90%** of organizations have adopted AI in software development.
+  - AI acts as an **amplifier**: it raises throughput *and* raises instability.
+  - Faster generation into a weak verification system produces more unreviewed change, not more shipped value.
 
-Read together, these are one finding. **Generation is solved and cheap. Verification is unsolved and expensive, and it is now the constraint.** Every additional line of plausible-looking generated code adds review load, and review load is paid in senior engineering hours — the most expensive input a software organization buys.
+Read together, these are one finding:
+
+> **Generation is solved and cheap. Verification is unsolved and expensive, and it is now the constraint.**
+
+Every additional line of plausible-looking generated code adds review load, and review load is paid in senior engineering hours — the most expensive input a software organization buys.
 
 ### The specific, expensive job this targets
 
@@ -52,17 +67,25 @@ Not all technical debt is equal. The kind that costs real money has a shape:
 
 > A signature change that touches **forty call sites across nine modules**, where being right in eight modules and wrong in the ninth is *worse than not starting* — because now a human must review a large diff to find the one mistake.
 
-Concretely: deprecating a parameter, making an argument keyword-only, renaming a widely-used internal API, threading a new context object through a call chain, migrating off a retired helper. These are the tasks that block framework upgrades, that sit in a "modernization" epic for four quarters, and that every engineer avoids because the diff is too wide to review confidently and too mechanical to be interesting.
+- **What it looks like concretely:**
+  - deprecating a parameter, or making an argument keyword-only
+  - renaming a widely-used internal API
+  - threading a new context object through a call chain
+  - migrating off a retired helper
 
-**The audience is specific:** platform, infrastructure and developer-experience teams at organizations with codebases large enough that a cross-cutting change is a project rather than an afternoon.
+- **Why these specific tasks rot:** they block framework upgrades, sit in a "modernization" epic for four quarters, and every engineer avoids them — the diff is too wide to review confidently and too mechanical to be interesting.
 
-**The economics are specific too.** A wide refactor is not expensive because it is hard to *write* — it is expensive because it is hard to *trust*. The cost is concentrated in review and in the risk of a partial migration reaching production. That is precisely the cost Principal attacks: it does not ask a reviewer to check whether forty edits are correct. It hands them a change that a real test suite already proved green, in a real sandbox, with the evidence attached.
+- **Who has this problem:** platform, infrastructure and developer-experience teams at organizations with codebases large enough that a cross-cutting change is a project rather than an afternoon.
+
+- **Where the cost actually sits:** a wide refactor is not expensive because it is hard to *write* — it is expensive because it is hard to *trust*. The money goes to review, and to the risk of a partial migration reaching production.
 
 ### What Principal actually sells
 
-**Not generated code — a verified decision.** Anyone can generate a forty-file diff today; the frontier models are good at it. Nobody can currently hand you a forty-file diff with a machine-checkable guarantee that it does not break the suite, produced without a human babysitting the loop.
+- **Not generated code — a verified decision.** Anyone can generate a forty-file diff today; the frontier models are good at it. Nobody can currently hand you one with a machine-checkable guarantee that it does not break the suite, produced without a human babysitting the loop.
 
-`NoPR` — "I tried, here is exactly what I tried, and I could not verify it, so I am not going to waste your review time" — is a **product feature with direct financial value**. It converts an unbounded review task back into a bounded one. A refactoring tool that *sometimes* ships an unverified change is worth less than no tool at all, because it poisons every diff it produces with the possibility that this is one of the bad ones.
+- **`NoPR` is a product feature with direct financial value.** It means: *"I tried, here is exactly what I tried, I could not verify it, and I am not going to waste your review time."* That converts an unbounded review task back into a bounded one.
+
+- **Why half-measures are worth less than nothing.** A refactoring tool that *sometimes* ships an unverified change poisons every diff it produces with the possibility that this is one of the bad ones.
 
 ---
 
@@ -70,7 +93,11 @@ Concretely: deprecating a parameter, making an argument keyword-only, renaming a
 
 The claim that this is an unsolved problem is not a guess. It is measured, and the measurement is public.
 
-[SWE Atlas Refactoring](https://labs.scale.com/leaderboard/sweatlas-refactoring) is a **70-task benchmark drawn from 10 production repositories across 6 languages** (Go, TypeScript, Python, C, C++, JavaScript), covering four refactor types: decomposition, interface evolution, extraction and relocation. It is the closest public proxy for the work described above.
+[SWE Atlas Refactoring](https://labs.scale.com/leaderboard/sweatlas-refactoring) is the closest public proxy for the work described above:
+
+- **70 tasks**, drawn from **10 production repositories**
+- **6 languages** — Go, TypeScript, Python, C, C++, JavaScript
+- **4 refactor types** — decomposition, interface evolution, extraction, relocation
 
 Leaderboard, **read 2026-09-20**:
 
@@ -84,19 +111,35 @@ Leaderboard, **read 2026-09-20**:
 | … | … | … |
 | 15 | Kimi-K2.5 (Mini-SWE-Agent) | 20.95 ±6.00 |
 
-The same class of model scores **above 80% on SWE-Bench Verified** issue resolution. The gap between "fix this bug" and "change this interface everywhere" is roughly **twenty-five points**, it has persisted across model generations, and the field has been climbing that specific number for months rather than treating it as solved.
+What that table means:
+
+- The same class of model scores **above 80% on SWE-Bench Verified** issue resolution.
+- The gap between *"fix this bug"* and *"change this interface everywhere"* is therefore roughly **twenty-five points**.
+- That gap has **persisted across model generations** — the field has been climbing this specific number for months rather than treating it as solved.
 
 > A leaderboard moves. These figures were re-verified against the live page on 2026-09-20; re-check before quoting them.
 
-**The thesis of this project is that the remaining gap is a scaffolding problem more than a weights problem.** A model that is right 60% of the time on a wide refactor is unusable if you ship its first answer, and very useful if you can generate several answers cheaply and let a test suite pick. That is an engineering problem, and it is the one Principal solves.
+**The thesis of this project: the remaining gap is a scaffolding problem more than a weights problem.**
+
+- A model right 60% of the time on a wide refactor is **unusable** if you ship its first answer.
+- The same model is **very useful** if you can generate several answers cheaply and let a test suite pick.
+- That is an engineering problem, and it is the one Principal solves.
 
 ---
 
 ## The approach
 
-Principal replaces *one careful attempt* with *many cheap attempts and a hard gate*.
+Principal replaces *one careful attempt* with *many cheap attempts and a hard gate*. For each unit of work it:
 
-For each unit of work it generates several independent candidate patches in parallel, pushes each through four gates, and **races them: the first one to go green wins**. There is no scoring function and no model anywhere in the accept path — the decision is made by `pytest`, not by a language model. Candidates that lose are cancelled, and their failure costs nothing, because it happened inside a private sandbox that nobody ever sees.
+1. generates **several independent candidate patches in parallel**;
+2. pushes each through **four gates**;
+3. **races them — the first one to go green wins**;
+4. **cancels the losers**, whose failure costs nothing because it happened inside a private sandbox nobody ever sees.
+
+Two properties make that more than a trick:
+
+- **No scoring function, no model in the accept path.** The decision is a `pytest` exit code, not a language model's opinion of a diff.
+- **Losing is free.** A failed candidate corrupts only its own fork — there is no shared working tree to clean up.
 
 This is affordable because of how the gates are ordered:
 
@@ -134,9 +177,17 @@ Principal ships a **default per-job budget of 2,000,000 tokens** (`token_budget_
 - **Pathological worst case** — every one of the 2M tokens billed as Ultra *output*: **$6.00**.
 - **Realistic shape** — planning is *one* Ultra call per job; candidate generation is Nano, which is where nearly all volume lives (3 candidates × up to 12 tasks); repair is Super and only fires on a red candidate. A Nano-dominated 2M-token mix lands **well under $1**.
 
-Against that, US in-house mid-to-senior engineering time runs roughly **$85–110/hour** fully loaded in 2026. A wide refactor of the shape described above — write it, chase the call sites, fix what broke, then get it reviewed — is conservatively a half-day to two days of engineer plus reviewer time: **several hundred to a couple of thousand dollars**.
+Set against the human cost of the same job:
 
-**The honest framing:** Principal does not remove the reviewer — the reviewer is inside the trust boundary by design, and a human still merges. What it removes is the *unbounded* part of the review: the reviewer is no longer auditing forty edits for a mistake, they are sanity-checking a change that already passed a real suite in a real sandbox, with per-candidate evidence attached. **The token cost is not the interesting number. The interesting number is that the cost of being wrong fell to zero,** because wrong attempts die in a private fork that nobody reviews and nothing ever sees.
+- US in-house mid-to-senior engineering time runs roughly **$85–110/hour** fully loaded in 2026.
+- A wide refactor — write it, chase the call sites, fix what broke, then get it reviewed — is conservatively **a half-day to two days** of engineer *plus* reviewer time.
+- That is **several hundred to a couple of thousand dollars** of the most expensive input a software organization buys.
+
+**The honest framing:**
+
+- Principal **does not remove the reviewer.** The reviewer is inside the trust boundary by design, and a human still merges.
+- What it removes is the **unbounded part** of the review: the reviewer is no longer auditing forty edits hunting for one mistake, they are sanity-checking a change that already passed a real suite in a real sandbox, with per-candidate evidence attached.
+- **The token cost is not the interesting number.** The interesting number is that **the cost of being wrong fell to zero** — wrong attempts die in a private fork that nobody reviews and nothing ever sees.
 
 > These are list prices and public salary ranges, not a customer case study. No production deployment has been measured. The arithmetic above is reproducible; the ROI claim is a reasoned argument from it, and is labelled as such deliberately.
 
@@ -154,11 +205,18 @@ Two mature categories already address parts of this problem. Neither covers the 
 | Scales across many repos | partially | ✅ its whole design | one repo per job |
 | Measured ceiling on wide refactors | ~59 on SWE Atlas | n/a — not a model | gated by the same models, but **races several attempts** |
 
-**Coding agents** are general but unverified: they produce a diff and hand you the review problem. The SWE Atlas number above is the measured ceiling on that approach for this task class.
+- **Coding agents** — general but unverified.
+  - They produce a diff and hand you the review problem.
+  - The SWE Atlas number above is the measured ceiling on that approach for this task class.
 
-**OpenRewrite/Moderne** is the serious incumbent for refactoring at scale, and the market signal is real — Moderne raised a **$30M Series B in February 2025** (Acrew Capital, with Intel Capital, Amex Ventures, Morgan Stanley and others) explicitly to attack enterprise technical debt. Their approach is deterministic AST transformation via recipes: exceptionally safe and auditable, and it **requires someone to have written the recipe first**. It is excellent for the hundredth JUnit-4-to-5 migration and structurally unable to help with the one-off signature change nobody has ever written a recipe for.
+- **OpenRewrite / Moderne** — the serious incumbent, and proof the market is real.
+  - Moderne raised a **$30M Series B in February 2025** (Acrew Capital, with Intel Capital, Amex Ventures, Morgan Stanley and others) explicitly to attack enterprise technical debt.
+  - Their approach is deterministic AST transformation via recipes: exceptionally safe and auditable.
+  - But it **requires someone to have written the recipe first** — excellent for the hundredth JUnit-4-to-5 migration, structurally unable to help with the one-off signature change nobody has ever written a recipe for.
 
-**Principal takes the third position: LLM generality for the diff, deterministic machinery for the decision.** The model proposes; a real test run in a real sandbox disposes. That combination is the contribution — not the model, and not the gate, but the fact that no model sits anywhere in the accept path.
+- **Principal takes the third position** — LLM generality for the diff, deterministic machinery for the decision.
+  - The model proposes; a real test run in a real sandbox disposes.
+  - The contribution is not the model and not the gate, but the fact that **no model sits anywhere in the accept path**.
 
 ---
 
@@ -211,7 +269,11 @@ flowchart TB
     style TF2 fill:#059669,color:#fff
 ```
 
-Nine components in one process, one mounted MCP sub-app, one static frontend. Dependencies point downward only, enforced by `import-linter` in CI: `agents` cannot import `sandbox`, `gates` cannot import `models` or `agents`. The second rule is the architecture's central claim — **no model in the accept path** — expressed as something a machine checks rather than a sentence in a README.
+- **Nine components** in one process, one mounted MCP sub-app, one static frontend.
+- **Dependencies point downward only**, enforced by `import-linter` in CI:
+  - `agents` cannot import `sandbox`
+  - `gates` cannot import `models` or `agents`
+- That second rule is the architecture's central claim — **no model in the accept path** — expressed as something a machine checks rather than a sentence in a README.
 
 ### The verification pipeline
 
@@ -316,19 +378,39 @@ The `alt` branch is the cost model made visible. A rejected candidate spends one
 
 ### Design decisions worth reading the code for
 
-**The blast radius raises, it does not truncate.** A reverse-edge BFS over call and import edges, depth 3, capped at 40 files. If the radius exceeds the cap, Principal **aborts with `RADIUS_TOO_LARGE`** rather than silently working on the first 40 files. A truncated radius produces a patch that looks complete and is not, which is the single most dangerous failure mode this system could have.
+- **The blast radius raises, it does not truncate.**
+  - A reverse-edge BFS over call and import edges, **depth 3, capped at 40 files**.
+  - Over the cap, Principal **aborts with `RADIUS_TOO_LARGE`** rather than silently working on the first 40.
+  - *Why it matters:* a truncated radius produces a patch that **looks complete and is not** — the single most dangerous failure mode this system could have.
 
-**Unresolved call sites are reported, not hidden.** A dynamic dispatch — `registry[name](user)` — cannot be proved to reach the target. Principal lists these explicitly in the PR body under "what a human must check". Getting this list *short and honest* took real work: naive reporting floods it with builtins until it is ignored. [`principal/graph/resolve.py`](principal/graph/resolve.py) distinguishes a genuinely unresolvable dynamic call from `len()`, and on the bundled fixture that is the difference between a list nobody reads and **exactly 2 real entries**, both in `src/registry.py`.
+- **Unresolved call sites are reported, not hidden.**
+  - A dynamic dispatch — `registry[name](user)` — cannot be proved to reach the target, so Principal lists it in the PR body under *"what a human must check"*.
+  - Getting that list *short and honest* took real work: naive reporting floods it with builtins until nobody reads it.
+  - [`principal/graph/resolve.py`](principal/graph/resolve.py) separates a genuinely unresolvable dynamic call from `len()` — on the bundled fixture, the difference between noise and **exactly 2 real entries**, both in `src/registry.py`.
 
-**Three behaviour-preservation checks beyond "tests pass".** Tests passing is necessary, not sufficient — a patch that deletes a function *and its tests* passes. So: public API delta is checked against the plan's *declared* removals, coverage may not fall, and the test count may not shrink.
+- **Three behaviour-preservation checks beyond "tests pass".** Tests passing is necessary, not sufficient — a patch that deletes a function *and its tests* passes. So:
+  - public API delta is checked against the plan's **declared** removals,
+  - coverage **may not fall**,
+  - the test count **may not shrink**.
 
-**Per-test coverage drives test selection.** The baseline runs `pytest --cov-context=test`, which yields a test→line map. Each fork then runs only the tests that actually cover the lines it changed. This is what keeps gate 3 at seconds rather than minutes.
+- **Per-test coverage drives test selection.**
+  - The baseline runs `pytest --cov-context=test`, yielding a test→line map.
+  - Each fork runs only the tests that actually cover the lines it changed — what keeps gate 3 at **seconds rather than minutes**.
 
-**The dependency rule is enforced by CI, not by discipline.** `import-linter` runs as `lint-imports` — **not** `python -m importlinter.cli lint`, which silently exits 0 without evaluating a contract. That was caught and fixed during development, and it is the kind of bug that makes a safety claim decorative.
+- **The dependency rule is enforced by CI, not by discipline.**
+  - `import-linter` runs as `lint-imports` — **not** `python -m importlinter.cli lint`, which silently exits 0 without evaluating a contract.
+  - Caught and fixed during development; it is exactly the kind of bug that makes a safety claim decorative.
 
-**The event log is the product.** Every state change is an append-only row. The API streams it as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace. A demo laptop that sleeps for ten seconds reconnects into a live view, not an empty one — and because the run id lives in the URL (`/app/?job=<id>`), a finished run is reconstructible from a link alone.
+- **The event log is the product.**
+  - Every state change is an **append-only row**.
+  - The API streams it as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace.
+  - A demo laptop that sleeps for ten seconds reconnects into a live view, not an empty one.
+  - Because the run id lives in the URL (`/app/?job=<id>`), a finished run is reconstructible **from a link alone**.
 
-**Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks explicitly, and `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **10 named adversarial diffs** — including `correct.diff`, which *must pass*, because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything.
+- **Every safety claim has a fixture.**
+  - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks explicitly.
+  - `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **10 named adversarial diffs**.
+  - That includes `correct.diff`, which **must pass** — because a gate suite that only proves things get *rejected* is satisfied by a gate that rejects everything.
 
 ---
 
@@ -338,11 +420,19 @@ The `alt` branch is the cost model made visible. A rejected candidate spends one
 
 ### NVIDIA Nemotron 3 — a hybrid architecture, used the way it was designed to be used
 
-Nemotron 3 is a **hybrid Mamba-Transformer Mixture-of-Experts** family: Mamba-2 layers for linear-time long-range sequence modelling, Transformer attention layers for precision on code and math, and MoE routing so only a fraction of parameters activate per token. Nano 30B-A3B, for instance, is built from 23 Mamba-2 layers, 23 MoE layers and 6 attention layers, activating **3.5B of 30B parameters** per token.
+Nemotron 3 is a **hybrid Mamba-Transformer Mixture-of-Experts** family:
 
-That combination is not incidental to this project — it is why wide fan-out over long, low-density prompts (a whole blast radius, every call site, with surrounding context) is economically viable at all. A pure quadratic-attention model at the same accuracy would cost far more per candidate, and the entire "generate three, race them" design would collapse.
+- **Mamba-2 layers** — linear-time long-range sequence modelling
+- **Transformer attention layers** — precision on code and math
+- **MoE routing** — only a fraction of parameters activate per token
+- *Nano 30B-A3B, concretely:* 23 Mamba-2 layers, 23 MoE layers, 6 attention layers — **3.5B of 30B parameters active** per token
 
-Principal uses **three** tiers rather than one, because the work is genuinely three different jobs with three different cost-to-difficulty ratios. Every model call is tagged with its tier and its token cost is recorded in the run metadata, so **the routing is measurable rather than asserted**.
+That combination is not incidental to this project:
+
+- It is **why wide fan-out is economically viable at all** over long, low-density prompts — a whole blast radius, every call site, with surrounding context.
+- A pure quadratic-attention model at the same accuracy would cost far more per candidate, and the entire *"generate three, race them"* design would collapse.
+
+Principal uses **three** tiers rather than one, because the work is genuinely three different jobs with three different cost-to-difficulty ratios. Every model call is tagged with its tier and its token cost recorded in the run metadata, so **the routing is measurable rather than asserted**.
 
 | Tier | Model | Scale | What it does | Why this tier |
 |---|---|---|---|---|
@@ -354,9 +444,18 @@ The planner tier is **configurable** (`PRINCIPAL_PLANNER_TIER=super|ultra`) spec
 
 #### The `reasoning_content` trap, and the boot-time capability probe
 
-Reasoning models served over an OpenAI-compatible API can return their output in `reasoning_content` and leave `content` **empty**. Code that reads `choices[0].message.content` and trusts it gets an empty string, and — this is the part that costs a hackathon weekend — **an empty string is not an error**. It is a successful API call that silently produces nothing, so the failure surfaces three layers away as "the agent generated no patch".
+The trap, in order:
 
-Principal does not guess. At boot it runs a **3×3 capability probe**: each of the three models against each of the three output protocols (JSON schema / tool calls / fenced text), pinning each model to the protocol it actually demonstrated. The results print as a table at startup; `PRINCIPAL_FORCE_PROTOCOL` pins one protocol for everything if you need determinism.
+1. Reasoning models served over an OpenAI-compatible API can return their output in `reasoning_content` and leave `content` **empty**.
+2. Code that reads `choices[0].message.content` and trusts it gets an empty string.
+3. **An empty string is not an error** — it is a *successful* API call that silently produces nothing.
+4. So the failure surfaces three layers away as *"the agent generated no patch"*. This is the part that costs a hackathon weekend.
+
+Principal does not guess:
+
+- At boot it runs a **3×3 capability probe** — each of the three models against each of the three output protocols (JSON schema / tool calls / fenced text).
+- Each model is **pinned to the protocol it actually demonstrated**, and the results print as a table at startup.
+- `PRINCIPAL_FORCE_PROTOCOL` pins one protocol for everything if you need determinism.
 
 ```
 model                                    schema  tools  text   chosen
@@ -371,11 +470,18 @@ This turns an entire class of silent, misattributed failure into fifteen seconds
 
 Principal uses Token Factory for two distinct things.
 
-**1. Inference** — the OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`, which meant the entire model layer is the official `openai` Python SDK pointed at a different `base_url`. Zero custom HTTP client, zero bespoke retry logic, and rate-limit headroom read straight off the response headers via `with_raw_response`. The default allowance is **60 requests/min and 400,000 tokens/min**, scaling up 20% per 15-minute window sustained above 80% utilisation to a ceiling of 20× base — which is exactly why the model client surfaces `x-ratelimit-remaining-*` headers live on the dashboard rather than discovering a slowdown by guessing.
+**1. Inference** — the OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`.
 
-**2. Sandboxes** — and this is not a convenience, it is the reason the architecture works at all.
+- The entire model layer is the official `openai` Python SDK pointed at a different `base_url` — **zero custom HTTP client, zero bespoke retry logic**.
+- Rate-limit headroom is read straight off the response headers via `with_raw_response`.
+- Default allowance: **60 requests/min and 400,000 tokens/min**, scaling **+20% per 15-minute window** sustained above 80% utilisation, to a ceiling of **20× base**.
+- That is exactly why the client surfaces `x-ratelimit-remaining-*` headers **live on the dashboard** rather than discovering a slowdown by guessing.
 
-Token Factory Sandboxes give every sandbox **its own microVM, built to run untrusted code**, with Git-like branching: fork execution state at any checkpoint, run parallel explorations, roll back instantly. The Contree SDK exposes this as one primitive rather than separate `fork`/`checkpoint` calls — `image.run(shell=..., disposable=False)` returns a *new* image, and it is **content-addressed**:
+**2. Sandboxes** — not a convenience; the reason the architecture works at all.
+
+- Every sandbox gets **its own microVM, built to run untrusted code**.
+- Git-like branching: **fork execution state at any checkpoint**, run parallel explorations, roll back instantly.
+- The Contree SDK exposes this as **one primitive** rather than separate `fork`/`checkpoint` calls — `image.run(shell=..., disposable=False)` returns a *new* image, and it is **content-addressed**:
 
 ```python
 # Two runs of the identical command from the identical parent return the
@@ -390,9 +496,19 @@ Two consequences fall directly out of that, and both are load-bearing:
 - **Checkpoint-fork is the unit of state.** The green baseline `C0` is built once — clone, install, run the suite — and every candidate for every task forks from that same image. Dependency installation, typically the dominant cost of any CI-like workload, is paid **once per job**, not once per candidate. With three candidates across a dozen tasks, that is the difference between **one install and thirty-six**.
 - **Failure is free because it is private.** A candidate that breaks the build breaks *its own fork*. There is no shared mutable working tree to corrupt, no cleanup, no rollback, no interference between parallel attempts. This is what makes "generate three, race them, discard two" reasonable rather than reckless.
 
-The honest comparison: building this on ordinary containers would mean either serialising the work (losing the parallelism the whole thesis depends on) or re-installing dependencies per candidate (losing the economics). **Sandboxes accelerated the workflow by making the parallel search affordable, not merely by making it faster.** The image tree is also the dashboard's fork-tree visualisation — no extra bookkeeping, because `attempt.parent_image` and `attempt.result_image` already describe the graph the platform maintains.
+**The honest comparison.** Building this on ordinary containers would force one of two losses:
 
-Sandboxes are also where the correctness signal comes from at all: gates 3 and 4 are real `pytest` runs, on real installed dependencies, in an isolated microVM. Documented beta service limits are **50 concurrent operations** and **180-day checkpoint retention** for tagged images. The accept decision is a process exit code from a genuine test run — not a model's opinion of a diff.
+- **serialise the work** — losing the parallelism the whole thesis depends on, or
+- **re-install dependencies per candidate** — losing the economics.
+
+> **Sandboxes accelerated the workflow by making the parallel search *affordable*, not merely by making it faster.**
+
+Two more things fall out for free:
+
+- **The fork tree needs no bookkeeping.** `attempt.parent_image` and `attempt.result_image` already describe the graph the platform maintains, so the dashboard's fork-tree visualisation is just a render of it.
+- **The correctness signal itself lives here.** Gates 3 and 4 are real `pytest` runs, on real installed dependencies, in an isolated microVM. The accept decision is a **process exit code from a genuine test run** — not a model's opinion of a diff.
+
+Documented beta service limits: **50 concurrent operations**, **180-day checkpoint retention** for tagged images.
 
 ### Other Nebius and NVIDIA components
 
@@ -428,7 +544,11 @@ Claims in a hackathon README are cheap. These are the commands that make them ex
 | SWE Atlas leader at 59.05 | [labs.scale.com](https://labs.scale.com/leaderboard/sweatlas-refactoring) | re-read 2026-09-20 |
 | Default budget cannot exceed $6.00/job | `token_budget_default = 2_000_000` × $3.00/1M Ultra output | arithmetic, worst case |
 
-**Scale of the thing, for calibration:** ~7,300 lines of Python across `principal/`, `mcp_code_graph/` and `bench/`; ~1,300 lines of tests; ~4,600 lines of dashboard.
+**Scale of the thing, for calibration:**
+
+- **~7,300 lines of Python** across `principal/`, `mcp_code_graph/` and `bench/`
+- **~1,300 lines** of tests
+- **~4,600 lines** of dashboard
 
 **What is *not* claimed**, stated plainly because a README that only lists strengths is not evidence:
 
@@ -441,9 +561,12 @@ Claims in a hackathon README are cheap. These are the commands that make them ex
 
 ## Quickstart — no credentials needed
 
-Principal runs its entire **deterministic half** with **no Nebius account at all**, against a bundled fixture repository of 14 Python modules, using an in-process sandbox that executes real `git` and real `pytest`. That means: a genuinely verified green baseline, real per-test coverage, a real tree-sitter code graph and a real blast radius. It stops at planning, because generating a patch needs an inference key.
+Principal runs its entire **deterministic half** with **no Nebius account at all** — against a bundled fixture repository of 14 Python modules, using an in-process sandbox that executes real `git` and real `pytest`.
 
-That boundary is deliberate and it is the useful one — **everything you can check for free is the half a model cannot fake.**
+- ✅ **What you get for free:** a genuinely verified green baseline, real per-test coverage, a real tree-sitter code graph, a real blast radius.
+- ⛔ **Where it stops:** planning — generating a patch needs an inference key.
+
+That boundary is deliberate, and it is the useful one — **everything you can check for free is the half a model cannot fake.**
 
 ```bash
 git clone https://github.com/BugHunterX2101/AMTDRS.git
@@ -456,7 +579,13 @@ pip install -e ".[dev]"
 principal doctor
 ```
 
-`doctor` checks the Python version, every import, the database schema, and — if credentials are present — inference, model ids and sandbox access. With no credentials you should see passes and three warnings:
+`doctor` checks:
+
+- the Python version and every import
+- the database schema and migration state
+- and — *only if credentials are present* — inference, model ids, and sandbox access as **two separate probes**
+
+With no credentials you should see passes and three warnings:
 
 ```
   [PASS] python                     3.11.9 (need >= 3.11)
@@ -476,7 +605,12 @@ principal radius \
   --target src.auth.session.create
 ```
 
-In about two seconds that prints the **7 source files and 2 test files** a change to `create()` can reach, all **24 call sites** inside that radius with their confidence — **14 of them naming `create` itself, 8 of those in `src/`** — and the **2 genuinely unresolvable dynamic dispatches**, both in `src/registry.py`.
+In about two seconds that prints everything a change to `create()` can reach:
+
+- **7 source files** and **2 test files** inside the radius
+- **24 call sites**, each with its confidence — **14 naming `create` itself**, 8 of those in `src/`
+- **2 genuinely unresolvable dynamic dispatches**, both in `src/registry.py`
+- at **reverse-BFS depth 3**
 
 Then run a job against the fixture:
 
@@ -489,7 +623,14 @@ principal run \
   --fake-sandbox
 ```
 
-With no `NEBIUS_API_KEY` set, that clones, installs, runs the fixture's **14 tests green**, builds the graph, computes the radius, and then aborts at `Planning` with a 401 — which is the correct behaviour and exactly what the boundary above describes. Set a key and the same command runs to `Done` or `NoPR`.
+With no `NEBIUS_API_KEY` set, that will:
+
+1. clone and install the fixture,
+2. run its **14 tests green** to build the verified `C0` baseline,
+3. build the code graph and compute the blast radius,
+4. then **abort at `Planning` with a 401** — the correct behaviour, and exactly the boundary described above.
+
+Set a key and the same command runs through to `Done` or `NoPR`.
 
 And the tests:
 
@@ -511,7 +652,11 @@ Fill in two values:
 | `NEBIUS_API_KEY` | Token Factory console → API keys | Used for inference **and**, by default, as the Sandboxes bearer token. |
 | `NEBIUS_PROJECT_ID` | Token Factory console → your project | Sent as the mandatory `Project` header by the Contree SDK. |
 
-> **Sandbox access is granted per project, not per key.** A key that does inference perfectly may still get `403` on Sandboxes. This is the single most common setup failure, which is why `principal doctor` probes them as two separate checks — it does one trivial disposable sandbox run and tells you which of the two is broken. If your account issues a **separate** Sandboxes token, set `CONTREE_TOKEN`; it is preferred over `NEBIUS_API_KEY` automatically for every sandbox call.
+> **Sandbox access is granted per project, not per key.**
+>
+> - A key that does inference perfectly may still get `403` on Sandboxes — **the single most common setup failure**.
+> - That is why `principal doctor` probes them as **two separate checks**: it does one trivial disposable sandbox run and tells you which of the two is broken.
+> - If your account issues a **separate** Sandboxes token, set `CONTREE_TOKEN` — it is preferred over `NEBIUS_API_KEY` automatically for every sandbox call.
 
 Then:
 
@@ -529,7 +674,10 @@ Principal only opens a PR when gate 4 is green. To enable it:
 | `GITHUB_TOKEN` | A **fine-grained** token with exactly `contents: write` and `pull_requests: write` |
 | `PRINCIPAL_FORK_REPO` | `owner/name` of the fork Principal pushes branches to |
 
-> **Scope the token to a fork you own — never to an upstream repository.** Principal opens **draft** PRs only. Leave both unset and jobs still run to completion and still produce the full verification report; only the publish step is skipped.
+> **Scope the token to a fork you own — never to an upstream repository.**
+>
+> - Principal opens **draft** PRs only.
+> - Leave both unset and jobs still run to completion and still produce the full verification report — only the publish step is skipped.
 
 ## Running it
 
@@ -550,7 +698,10 @@ principal serve --host 0.0.0.0 --port 8000
 | `POST` | `/jobs/{id}/cancel` | cancels in-flight sandbox operations too |
 | `GET` | `/debug/blast-radius` | blast radius of any symbol, no job required |
 
-Errors are a documented envelope, not a bare 500 — `PrincipalError` carries a machine-readable `code`, a `retryable` flag and the `job_id`, and the app-level handler maps it to the right status (`RADIUS_TOO_LARGE` → 422, `TARGET_NOT_FOUND` → 404, `BUDGET_EXHAUSTED` → 429):
+Errors are a **documented envelope, not a bare 500**:
+
+- `PrincipalError` carries a machine-readable `code`, a `retryable` flag and the `job_id`.
+- An app-level handler maps each code to the right status — `RADIUS_TOO_LARGE` → **422**, `TARGET_NOT_FOUND` → **404**, `BUDGET_EXHAUSTED` → **429**, anything unmapped → **400**.
 
 ```bash
 curl -X POST localhost:8000/jobs -H 'content-type: application/json' -d '{
@@ -575,11 +726,36 @@ Two pages, built into one `dist/` and served by `principal serve`:
 cd dashboard && npm install && npm run build
 ```
 
-The console renders the live fork tree, per-candidate gate progress, an evidence drawer (diff, test output, coverage delta for any attempt), run economics and the NoPR report, and can cancel a job in flight. Because the run id lives in the URL, a reload or a slept laptop resumes the same run rather than losing it, and a run can be linked to. `PRINCIPAL_SLOW_MO_MS=250` paces event emission so the fan-out is legible on video.
+The console renders:
+
+- the **live fork tree** and per-candidate gate progress
+- an **evidence drawer** — diff, test output and coverage delta for any attempt
+- **run economics** and the NoPR report
+- a **cancel** control that stops a job in flight, sandbox operations included
+
+Two details that matter on a demo:
+
+- Because the run id lives in the URL, **a reload or a slept laptop resumes the same run** rather than losing it — and a run can be linked to.
+- `PRINCIPAL_SLOW_MO_MS=250` paces event emission so the fan-out is legible on video.
 
 ### Code-graph MCP server
 
-The static analysis is exposed as five read-only MCP tools (`find_symbol`, `callers_of`, `blast_radius`, `tests_covering`, `read_span`). `principal serve` mounts them over streamable HTTP at **`/mcp/`**, and `python -m mcp_code_graph.server` runs the identical server object over stdio for any MCP client. Every tool is read-only **by construction** — there is no write tool, no shell tool, and nothing that names a sandbox, so an agent holding this toolset can look at the code and nothing else.
+The static analysis is exposed as **five read-only MCP tools**:
+
+| Tool | Returns |
+|---|---|
+| `find_symbol` | a symbol by name, with its definition span |
+| `callers_of` | every recorded caller of an FQN |
+| `blast_radius` | the reverse-BFS radius of a symbol |
+| `tests_covering` | the tests whose coverage touches a symbol |
+| `read_span` | an exact line range of a file |
+
+Two ways to reach them:
+
+- `principal serve` mounts them over **streamable HTTP at `/mcp/`**
+- `python -m mcp_code_graph.server` runs the identical server object over **stdio** for any MCP client
+
+> **Read-only by construction** — there is no write tool, no shell tool, and nothing that names a sandbox. An agent holding this toolset can look at the code and nothing else.
 
 ### Benchmark
 
@@ -587,7 +763,14 @@ The static analysis is exposed as five read-only MCP tools (`find_symbol`, `call
 make bench
 ```
 
-Three arms over the same task set: **A** single-shot, no gates; **B** single candidate, gates on; **C** full swarm. Results are reported in **three** buckets — verified / failed on merit / excluded as infrastructure — because collapsing a sandbox timeout into "the patch was wrong" is dishonest in both directions: it understates the verified refactor rate and it hides a platform problem that belongs in the tooling feedback. (See the honesty note above: the published task set is currently one pinned task.)
+- **Three arms** over the same task set:
+  - **A** — single-shot, no gates
+  - **B** — single candidate, gates on
+  - **C** — full swarm
+- **Three result buckets** — verified / failed on merit / excluded as infrastructure.
+- *Why three and not two:* collapsing a sandbox timeout into "the patch was wrong" is dishonest in both directions — it understates the verified refactor rate **and** hides a platform problem that belongs in the tooling feedback.
+
+> Per the honesty note above, the published task set is currently **one pinned task**, not a suite.
 
 ## Deploying the hosted demo
 
@@ -604,7 +787,11 @@ With credentials, pass them through:
 docker run -p 8000:8000 -e NEBIUS_API_KEY=... -e NEBIUS_PROJECT_ID=... principal
 ```
 
-**Live free-tier deploy:** a `render.yaml` Blueprint is included and is what serves [amtdrs.onrender.com](https://amtdrs.onrender.com) — Render builds the exact Dockerfile above with no credit card required and auto-deploys on every push to `main`. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the setup steps, and why Cloud Run and Hugging Face Spaces were tried first and ruled out for a genuinely zero-cost path on this account.
+**Live free-tier deploy:**
+
+- A `render.yaml` Blueprint is included, and it is what serves [amtdrs.onrender.com](https://amtdrs.onrender.com).
+- Render builds the **exact Dockerfile above**, with no credit card required, and auto-deploys on every push to `main`.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) has the setup steps — and why Cloud Run and Hugging Face Spaces were tried first and ruled out for a genuinely zero-cost path on this account.
 
 ---
 
@@ -743,7 +930,9 @@ AMTDRS/
 
 ## Project provenance
 
-Principal was **created entirely during the hackathon submission period** (26 August – 30 October 2026). It is not a pre-existing project, and no part of it was published before the submission period opened. The full commit history in this repository is the record.
+- Principal was **created entirely during the hackathon submission period** (26 August – 30 October 2026).
+- It is **not** a pre-existing project, and no part of it was published before the submission period opened.
+- The full commit history in this repository is the record.
 
 ## Documentation
 

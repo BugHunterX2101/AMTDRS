@@ -21,7 +21,7 @@ from principal.models.client import ModelClient
 PROMPT = (Path(__file__).parent / "prompts" / "planner.md").read_text(encoding="utf-8")
 
 
-def _render(goal: str, target_fqn: str, radius: BlastRadius, max_depth: int) -> str:
+def _render(goal: str, target_fqn: str, radius: BlastRadius, max_depth: int, prompt_template: str) -> str:
     files_block = "\n".join(f"- {p}" for p in sorted(radius.files)) or "(none)"
     calls = [c for c in radius.call_sites if c["confidence"] == "static"]
     call_sites_block = "\n".join(
@@ -31,7 +31,7 @@ def _render(goal: str, target_fqn: str, radius: BlastRadius, max_depth: int) -> 
         f"- {u['file']}:{u['line']} `{u['name']}` — {u['reason']}" for u in radius.unresolved[:50]
     ) or "(none)"
 
-    return PROMPT.format(
+    return prompt_template.format(
         goal=goal, target_fqn=target_fqn, signature=radius.target.signature or "(no signature captured)",
         target_path=radius.target.path, target_line=radius.target.line_start, max_depth=max_depth,
         files_block=files_block, call_sites_block=call_sites_block, unresolved_block=unresolved_block,
@@ -80,9 +80,9 @@ def validate_plan(plan: Plan, radius_files: set[str], max_tasks: int) -> None:
 
 async def plan(
     client: ModelClient, *, job_id: str, goal: str, target_fqn: str, radius: BlastRadius,
-    max_depth: int, max_tasks: int, tier: Tier = Tier.ULTRA,
+    max_depth: int, max_tasks: int, tier: Tier = Tier.ULTRA, prompt_template: str | None = None,
 ) -> Plan:
-    prompt = _render(goal, target_fqn, radius, max_depth)
+    prompt = _render(goal, target_fqn, radius, max_depth, prompt_template or PROMPT)
     messages = [{"role": "user", "content": prompt}]
 
     last_error: str | None = None

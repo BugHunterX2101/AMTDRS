@@ -26,7 +26,14 @@ class Code(str, Enum):
     GATE_SYNTAX = "GATE_SYNTAX"
     GATE_TESTS_RED = "GATE_TESTS_RED"
     GATE_BEHAVIOUR = "GATE_BEHAVIOUR"
+    GATE_SECURITY = "GATE_SECURITY"
     INTEGRATION_CONFLICT = "INTEGRATION_CONFLICT"
+    # Characterisation could not establish a trustworthy oracle. Emphatically not
+    # a patch failure: no patch was ever attempted. It belongs in its own bucket
+    # for the same reason NoPR does — the system declining to guess is the
+    # behaviour being claimed, and scoring it as a failure would punish exactly
+    # the property the product sells.
+    NO_SAFETY_NET = "NO_SAFETY_NET"
     MODEL_EMPTY_RESPONSE = "MODEL_EMPTY_RESPONSE"
     MODEL_PROTOCOL_REJECTED = "MODEL_PROTOCOL_REJECTED"
     MODEL_RATE_LIMITED = "MODEL_RATE_LIMITED"
@@ -152,6 +159,24 @@ class SandboxOpFailed(PrincipalError):
 class ModelEmptyResponse(PrincipalError):
     def __init__(self, model: str):
         super().__init__(Code.MODEL_EMPTY_RESPONSE, f"{model} returned no usable text")
+
+
+class NoSafetyNet(PrincipalError):
+    """No adequate oracle could be established for the target.
+
+    Raised when a target has no covering tests and characterisation could not
+    produce a suite that detects real mutations of it. Refusing here is the
+    point: proceeding would mean grading a refactor against tests that cannot
+    tell a correct one from a broken one.
+    """
+
+    def __init__(self, target: str, score: float | None, floor: float):
+        measured = "no tests survived validation" if score is None else f"mutation score {score:.2f}"
+        super().__init__(
+            Code.NO_SAFETY_NET,
+            f"cannot safely refactor {target}: {measured}, floor is {floor:.2f}",
+            target=target, score=score, floor=floor,
+        )
 
 
 class ModelIdUnknown(PrincipalError):

@@ -125,6 +125,11 @@ layers = [
     "principal.api",
     "principal.orchestrator",
     "principal.gates | principal.agents | principal.publish",
+    # Routines sit below the gates deliberately. Gate 1 reads a routine's scope
+    # policy, so a routine must not be able to reach a gate: the alternative is a
+    # cycle in which what a diff may touch is decided partly by the thing being
+    # checked. A routine names its prompt by path and never imports an agent.
+    "principal.routines",
     "principal.sandbox | principal.models | principal.graph",
     "principal.db",
     "principal.config",

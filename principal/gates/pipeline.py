@@ -18,8 +18,13 @@ class VerdictKind(str, Enum):
     SYNTAX = "syntax"
     RED = "red"
     BEHAVIOUR = "behaviour"
+    SECURITY = "security"
     ERROR = "error"
     TIMEOUT = "timeout"
+    # Gate 5 is differential: it compares findings before against findings after.
+    # With no baseline scan there is nothing to subtract, so the gate has no
+    # opinion — which is not the same as passing, and must not be recorded as one.
+    INCONCLUSIVE = "inconclusive"
 
 
 @dataclass(slots=True)

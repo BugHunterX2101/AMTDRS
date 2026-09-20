@@ -17,6 +17,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ROOT = Path(__file__).resolve().parent.parent
 
 
+# SWE Atlas reports that on Test Writing the leading model under a common
+# scaffold writes the fewest tests on average and lands the highest score: the
+# benchmark rewards agents that find the right tests rather than agents that add
+# more. Asking for "comprehensive" coverage reliably produces forty shallow
+# assertions, so the cap is low and mutation score decides whether it sufficed.
+# It lives here rather than beside either user because the Characteriser (an
+# agent) and the characterisation gate are siblings in the layer contract and
+# cannot import one another.
+MAX_GENERATED_TESTS = 6
+
+
 class Tier(str, Enum):
     NANO = "nano"
     SUPER = "super"

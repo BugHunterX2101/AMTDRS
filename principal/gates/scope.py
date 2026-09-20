@@ -8,6 +8,7 @@ from __future__ import annotations
 from principal.diffs import ParsedDiff, path_traversal
 from principal.gates.pipeline import Verdict, VerdictKind
 from principal.graph.parse import is_test_path
+from principal.routines.registry import Routine, default_routine
 
 BLOCKED_MANIFESTS = {
     "pyproject.toml", "setup.py", "setup.cfg", "poetry.lock", "Pipfile",
@@ -17,7 +18,22 @@ BLOCKED_MANIFESTS = {
 }
 
 
-def check_scope(diff: ParsedDiff, target_file: str, radius_files: set[str]) -> Verdict:
+def check_scope(
+    diff: ParsedDiff, target_file: str, radius_files: set[str], *, routine: Routine | None = None,
+) -> Verdict:
+    """The one enforcement point for what a diff may touch.
+
+    `routine` is read, never branched on ad hoc: today both registered routines
+    leave `allows_new_files` false, so the check below has the same effect it
+    always had. What changes is where that policy is declared. Relocation moves
+    a symbol between two files that are both already inside the blast radius —
+    the source loses it, the destination gains it, two single-file tasks, same
+    as any other task — so it needs no widening here at all. The hook exists for
+    the routine that will: extraction has to create a new shared module, and
+    when that is built, `allows_new_files` is read from here rather than the
+    gate growing a special case for one routine.
+    """
+    routine = routine or default_routine()
     paths = diff.touched_paths
 
     if path_traversal(paths):
@@ -45,10 +61,11 @@ def check_scope(diff: ParsedDiff, target_file: str, radius_files: set[str]) -> V
             VerdictKind.SCOPE, "scope", "diff touches a dependency manifest", paths=manifest_hits
         )
 
-    if not paths <= radius_files:
+    outside = paths - radius_files
+    if outside and not routine.allows_new_files:
         return Verdict.fail(
             VerdictKind.SCOPE, "scope", "diff touches a file outside the job's blast radius",
-            paths=sorted(paths - radius_files),
+            paths=sorted(outside),
         )
 
     return Verdict.ok_()

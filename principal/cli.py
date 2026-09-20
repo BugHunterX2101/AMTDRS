@@ -50,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--commit", required=True)
     p_run.add_argument("--goal", required=True)
     p_run.add_argument("--target", default=None, help="fully qualified name of the symbol to change")
+    p_run.add_argument("--routine", default="interface_evolution", choices=["interface_evolution", "relocation"],
+                       help="which routine plans this job (default: interface_evolution)")
     p_run.add_argument("--dry-run", action="store_true", help="stop after planning; touches no sandbox")
     p_run.add_argument("--fake-sandbox", action="store_true",
                        help="force the local in-process sandbox even if credentials are present")
@@ -236,6 +238,7 @@ async def _run(args) -> int:
     job = store.create_job(
         repo_url=args.repo, commit_sha=args.commit, goal=args.goal, target_fqn=args.target,
         token_budget=settings.token_budget_default, tunables=settings.recorded_tunables(),
+        routine=args.routine,
     )
     print(f"job {job.id}")
 

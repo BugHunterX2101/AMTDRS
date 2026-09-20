@@ -49,6 +49,7 @@ class Job:
     token_budget: int
     tokens_spent: int
     tunables: dict[str, Any]
+    routine: str
     pr_url: str | None
     created_at: str
     finished_at: str | None
@@ -69,6 +70,7 @@ class Task:
     attempts: int
     winning_attempt_id: str | None
     discard_reason: str | None
+    kind: str = "refactor"
 
 
 @dataclass(slots=True)
@@ -178,14 +180,15 @@ class Store:
         target_fqn: str | None,
         token_budget: int,
         tunables: dict[str, Any],
+        routine: str = "interface_evolution",
         job_id: str | None = None,
     ) -> Job:
         jid = job_id or new_id()
         self.exec(
             "INSERT INTO job (id, repo_url, commit_sha, goal, target_fqn, state, token_budget,"
-            " tunables, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            " tunables, routine, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (jid, repo_url, commit_sha, goal, target_fqn, "Ingesting", token_budget,
-             json.dumps(tunables), now()),
+             json.dumps(tunables), routine, now()),
         )
         job = self.get_job(jid)
         assert job is not None
@@ -199,8 +202,9 @@ class Store:
             id=r["id"], repo_url=r["repo_url"], commit_sha=r["commit_sha"], goal=r["goal"],
             target_fqn=r["target_fqn"], state=r["state"], baseline_image=r["baseline_image"],
             graph_id=r["graph_id"], token_budget=r["token_budget"], tokens_spent=r["tokens_spent"],
-            tunables=json.loads(r["tunables"] or "{}"), pr_url=r["pr_url"],
-            created_at=r["created_at"], finished_at=r["finished_at"], stop_reason=r["stop_reason"],
+            tunables=json.loads(r["tunables"] or "{}"), routine=r["routine"] or "interface_evolution",
+            pr_url=r["pr_url"], created_at=r["created_at"], finished_at=r["finished_at"],
+            stop_reason=r["stop_reason"],
         )
 
     def list_jobs(self, limit: int = 50) -> list[Job]:
@@ -221,13 +225,14 @@ class Store:
     def create_task(
         self, *, job_id: str, seq: int, target_file: str, instruction: str,
         acceptance: str, depends_on: list[int], declared_removals: list[str] | None = None,
+        kind: str = "refactor",
     ) -> Task:
         tid = new_id("t-")
         self.exec(
             "INSERT INTO task (id, job_id, seq, target_file, instruction, acceptance,"
-            " declared_removals, depends_on, state) VALUES (?,?,?,?,?,?,?,?,?)",
+            " declared_removals, depends_on, state, kind) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (tid, job_id, seq, target_file, instruction, acceptance,
-             json.dumps(declared_removals or []), json.dumps(depends_on), "pending"),
+             json.dumps(declared_removals or []), json.dumps(depends_on), "pending", kind),
         )
         t = self.get_task(tid)
         assert t is not None
@@ -240,7 +245,7 @@ class Store:
             declared_removals=json.loads(r["declared_removals"] or "[]"),
             depends_on=json.loads(r["depends_on"] or "[]"), state=r["state"],
             attempts=r["attempts"], winning_attempt_id=r["winning_attempt_id"],
-            discard_reason=r["discard_reason"],
+            discard_reason=r["discard_reason"], kind=r["kind"] if "kind" in r.keys() else "refactor",
         )
 
     def get_task(self, task_id: str) -> Task | None:

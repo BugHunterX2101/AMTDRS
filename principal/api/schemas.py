@@ -13,6 +13,11 @@ class CreateJobRequest(BaseModel):
     token_budget: int | None = None
     max_tasks: int | None = None
     dry_run: bool = False
+    routine: str = Field(
+        default="interface_evolution",
+        description="'interface_evolution' (default) or 'relocation'. An unrecognised or"
+                     " unimplemented name runs as interface_evolution rather than aborting the job.",
+    )
 
 
 class CreateJobResponse(BaseModel):

@@ -57,7 +57,7 @@ async def create_job(body: CreateJobRequest, request: Request):
     job = app.store.create_job(
         repo_url=body.repo_url, commit_sha=body.commit_sha, goal=body.goal,
         target_fqn=body.target_fqn, token_budget=body.token_budget or settings.token_budget_default,
-        tunables=settings.recorded_tunables(),
+        tunables=settings.recorded_tunables(), routine=body.routine,
     )
     if body.max_tasks:
         settings = settings.model_copy(update={"max_tasks": body.max_tasks})
@@ -77,12 +77,18 @@ async def create_job(body: CreateJobRequest, request: Request):
 
 
 async def _run_plan_only(job_id: str, app) -> None:
-    from principal.orchestrator.job import _ingest_and_baseline, _map, _plan  # noqa: PLC0415
+    from principal.orchestrator.job import (  # noqa: PLC0415
+        _ingest_and_baseline,
+        _map,
+        _plan,
+        _resolve_target,
+    )
 
     try:
         await _ingest_and_baseline(job_id, app.store, app.events, app.sandbox, app.settings)
         graph_id = await _map(job_id, app.store, app.events, app.settings)
-        await _plan(job_id, app.store, app.events, app.models, graph_id, app.settings)
+        target = _resolve_target(app.store, job_id, graph_id)
+        await _plan(job_id, app.store, app.events, app.models, graph_id, target, app.settings)
         with app.events.transaction(job_id, "job.state", {"state": "Done"}) as _:
             from principal.db.store import now
             app.store.update_job(job_id, state="Done", stop_reason="dry_run", finished_at=now())

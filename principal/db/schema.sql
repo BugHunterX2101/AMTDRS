@@ -93,8 +93,11 @@ CREATE TABLE IF NOT EXISTS test_edge (
   nodeid       TEXT NOT NULL,             -- pytest node id, runnable directly
   -- 'coverage' edges come from --cov-context=test at baseline and catch tests that
   -- exercise a symbol through three layers of indirection, which is exactly where
-  -- the import-derived version silently misses.
-  source       TEXT NOT NULL CHECK (source IN ('import', 'coverage'))
+  -- the import-derived version silently misses. 'characterisation' edges are the
+  -- Characteriser's generated tests, registered here after they pass on C0 and
+  -- clear the mutation floor, so gate 3's existing selection logic picks them up
+  -- with no new code: they are a source of test_edge like any other.
+  source       TEXT NOT NULL CHECK (source IN ('import', 'coverage', 'characterisation'))
 );
 CREATE INDEX IF NOT EXISTS test_symbol ON test_edge(graph_id, symbol_id);
 
@@ -112,6 +115,10 @@ CREATE TABLE IF NOT EXISTS job (
   token_budget   INTEGER NOT NULL,
   tokens_spent   INTEGER NOT NULL DEFAULT 0,
   tunables       TEXT,                    -- JSON, recorded so arms stay comparable
+  -- Which routine planned this job: 'interface_evolution' or 'relocation'.
+  -- Recorded so a published per-category result can be traced back to the run
+  -- that produced it, and so a blended average is never the only number on offer.
+  routine        TEXT NOT NULL DEFAULT 'interface_evolution',
   pr_url         TEXT,
   created_at     TEXT NOT NULL,
   finished_at    TEXT,
@@ -135,7 +142,12 @@ CREATE TABLE IF NOT EXISTS task (
   state              TEXT NOT NULL,
   attempts           INTEGER NOT NULL DEFAULT 0,
   winning_attempt_id TEXT,
-  discard_reason     TEXT
+  discard_reason     TEXT,
+  -- 'refactor' is the task the plan exists to accomplish. 'cleanup' is a task
+  -- CleanupPlanning emitted from what the refactor itself orphaned — same Coder,
+  -- same gates, same candidate race, distinguished only so the reporter and the
+  -- dashboard can tell "asked for" from "swept up after".
+  kind               TEXT NOT NULL DEFAULT 'refactor'
 );
 CREATE INDEX IF NOT EXISTS task_job ON task(job_id);
 

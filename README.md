@@ -9,7 +9,6 @@
 [![CI](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml/badge.svg)](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab)
-![Tests](https://img.shields.io/badge/tests-395%20passing-3fb950)
 ![Models](https://img.shields.io/badge/models-NVIDIA%20Nemotron%203-76b900)
 
 **[Live demo](https://amtdrs.onrender.com)** · **[Console](https://amtdrs.onrender.com/app/)** · **[Architecture](#architecture)** · **[Quickstart](#quickstart--no-credentials-needed)** · **[What is verified](#verification-ledger--what-in-this-readme-was-checked-and-how)**
@@ -37,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Verified at HEAD** | `pytest -q` → **395 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** · CI green on Linux **and** Windows, Python 3.11 **and** 3.12 |
+| **Last verified** | **2026-10-21**: `pytest -q` → **395 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** · CI green on Linux **and** Windows, Python 3.11 **and** 3.12. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -69,7 +68,7 @@ Deprecating a parameter, renaming a widely used internal API, threading a new co
 
 The public evidence points the same way:
 
-- Technical debt is estimated at **21–40% of IT spending** by Deloitte's [2026 Global Technology Leadership Study](https://www.deloitte.com/us/en/insights/topics/leadership/global-technology-leadership-study.html), which itself notes the range is hard to measure and has no standard benchmark.
+- Technical debt is estimated at **21–40% of IT spending** by Deloitte's [2026 Global Technology Leadership Study](https://www.deloitte.com/us/en/insights/topics/technology-management/technical-debt-impact.html), which itself notes the range is hard to measure and has no standard benchmark.
 - In the [2025 Stack Overflow Developer Survey](https://survey.stackoverflow.co/2025/), **84%** of respondents were using or planning to use AI tools, yet only **29%** said they trust them ([Stack Overflow, 2026](https://stackoverflow.blog/2026/02/18/closing-the-developer-ai-trust-gap/)), and **66%** named *"AI solutions that are almost right, but not quite"* as their top frustration.
 - Google's [2025 DORA report](https://dora.dev/dora-report-2025/) says AI's primary role is **"an amplifier, magnifying an organization's existing strengths and weaknesses."**
 
@@ -873,7 +872,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **Stack Overflow: 84% using or planning to use; 29% trust** | Stack Overflow's own article | ✅ |
 | **Stack Overflow: 66% "almost right, but not quite"** | official survey page, via search | ✅ — an earlier draft said **45%**, which was actually the *debugging* figure; corrected |
 | **DORA: AI is "an amplifier"** | quoted from the DORA page | ✅ (the throughput/instability detail was *not* confirmed from the primary report, so it is not claimed) |
-| **Deloitte: 21–40% of IT spend** | search summary of the 2026 study; the page itself did not expose the sentence | ⚠️ secondary — Deloitte flags it as an estimate. An earlier draft also credited McKinsey with "the same band"; McKinsey's 20–40% measures a share of *technology estate value*, so that was **removed** |
+| **Deloitte: 21–40% of IT spend** | Deloitte's own [technical-debt page](https://www.deloitte.com/us/en/insights/topics/technology-management/technical-debt-impact.html): "technical debt accounts for 21% to 40% of an organization's IT spending," citing its 2026 study | ✅ — Deloitte flags it as an estimate. An earlier draft also credited McKinsey with "the same band"; McKinsey's 20–40% measures a share of *technology estate value*, so that was **removed** |
 | **Moderne: $30M Series B, Acrew Capital, 11 Feb 2025** | TechCrunch article | ✅ |
 | **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | ✅ within noise — *no change*, not an improvement |
 | **Hosted demo reports FakeSandbox, `live:false`; 33 s cold start** | `curl` of the live `/healthz` and `/` | ✅ |

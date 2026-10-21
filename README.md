@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **432 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-21**: `pytest -q` → **432 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on commit `93879e5` passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 

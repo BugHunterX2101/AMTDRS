@@ -235,6 +235,7 @@ async def _run(args) -> int:
         store=store, base_url=settings.principal_inference_base, api_key=settings.nebius_api_key,
         model_ids={t: settings.model_id(t) for t in Tier}, capability={},
         cache=DiskCache(settings.principal_cache_dir, enabled=settings.principal_model_cache),
+        events=events,
     )
 
     tunables = settings.recorded_tunables()

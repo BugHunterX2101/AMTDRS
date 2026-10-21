@@ -77,6 +77,40 @@ def _usage(attempts: list[dict[str, Any]], tokens_spent: int, token_budget: int)
     }
 
 
+def _model_calls(store: Store, job_id: str, tokens_spent: int) -> dict[str, Any] | None:
+    """Per-call attribution of the job's tokens, from the `model.call` records.
+
+    `None` for a job recorded before the ledger existed: nothing was written, so
+    nothing is claimed, and "no breakdown" is not the same statement as "zero".
+    `unattributed_tokens` is whatever the budget charged that no record explains,
+    reported as a number so a gap is visible rather than assumed away.
+    """
+    rows = store.q("SELECT payload FROM event WHERE job_id = ? AND kind = 'model.call' ORDER BY seq", (job_id,))
+    if not rows:
+        return None
+    by_role: dict[tuple[str, str, str], dict[str, Any]] = {}
+    attributed = 0
+    for row in rows:
+        c = json.loads(row["payload"])
+        key = (c["role"], c["tier"], c["model"])
+        slot = by_role.setdefault(key, {
+            "role": c["role"], "tier": c["tier"], "model": c["model"],
+            "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "billed_tokens": 0, "cached": 0,
+        })
+        slot["calls"] += 1
+        slot["prompt_tokens"] += c["prompt_tokens"]
+        slot["completion_tokens"] += c["completion_tokens"]
+        slot["billed_tokens"] += c["billed_tokens"]
+        slot["cached"] += 1 if c["from_cache"] else 0
+        attributed += c["billed_tokens"]
+    return {
+        "calls": len(rows),
+        "by_role": sorted(by_role.values(), key=lambda r: -r["billed_tokens"]),
+        "attributed_tokens": attributed,
+        "unattributed_tokens": tokens_spent - attributed,
+    }
+
+
 def _count(values: Any) -> dict[str, int]:
     out: dict[str, int] = {}
     for v in values:
@@ -124,7 +158,8 @@ def build_evidence(store: Store, settings: Settings, job_id: str) -> dict[str, A
             for t in tasks
         ],
         "gates": gates,
-        "usage": _usage(attempts, job.tokens_spent, job.token_budget),
+        "usage": {**_usage(attempts, job.tokens_spent, job.token_budget),
+                  "model_calls": _model_calls(store, job_id, job.tokens_spent)},
         "attempts": attempts,
         "artifacts": _artifacts(store, settings, job_id),
         "tunables": job.tunables,
@@ -178,6 +213,24 @@ def render_markdown(ev: dict[str, Any]) -> str:
         "## Usage", "",
         f"- {u['attempts']} attempts ({verdicts})",
         f"- tokens {u['tokens_spent']:,} of {u['token_budget']:,}; sandbox cost {cost} (model tokens are not priced)",
+    ]
+    mc = u.get("model_calls")
+    if mc is None:
+        lines.append("- model calls: not itemised (this run was recorded before the per-call ledger)")
+    else:
+        lines += [f"- {mc['calls']} model calls, by role:"]
+        lines += [
+            f"  - **{r['role']}** — `{r['model']}` ({r['tier']}): {r['calls']} call(s), "
+            f"{r['billed_tokens']:,} tokens ({r['prompt_tokens']:,} prompt, {r['completion_tokens']:,} completion)"
+            + (f", {r['cached']} from cache" if r["cached"] else "")
+            for r in mc["by_role"]
+        ]
+        gap = mc["unattributed_tokens"]
+        lines.append(
+            "  - reconciles: every charged token is attributed" if gap == 0
+            else f"  - **{gap:,} charged tokens are not attributed to any recorded call**"
+        )
+    lines += [
         "",
         "## Reproduce", "", "```", ev["reproduce"]["command"], "```", "",
     ]

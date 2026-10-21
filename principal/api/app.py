@@ -107,6 +107,7 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
     models = ModelClient(
         store=store, base_url=settings.principal_inference_base, api_key=settings.nebius_api_key,
         model_ids=model_ids, capability=capability, cache=cache, forced_protocol=forced,
+        events=events,
     )
 
     sandbox: SandboxClient

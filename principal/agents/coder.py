@@ -48,6 +48,7 @@ async def generate_candidate(
     messages = [{"role": "user", "content": context_pack}]
     completion = await client.complete(
         tier, messages, temperature=temperature, job_id=job_id, max_tokens=max_tokens_for(tier),
+        role="coder",
     )
     diff = parse_diff(completion.text)
     if original is not None and target_file is not None:

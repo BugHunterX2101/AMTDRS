@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **395 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** · CI green on Linux **and** Windows, Python 3.11 **and** 3.12. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-21**: `pytest -q` → **404 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** · CI green on Linux **and** Windows, Python 3.11 **and** 3.12. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -353,7 +353,9 @@ The `alt` branch **is the cost model made visible**: a locally rejected candidat
 
 - **Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks. `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **10 named adversarial inputs** — including `correct.diff`, which **must pass**, because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything.
 
-- **Local stand-ins are labelled, never hidden.** `--fake-sandbox` runs real `git` and real `pytest` locally and prints `mode: LOCAL STAND-IN — not a measurement of the Nebius platform`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
+- **Live is the default; stand-ins are labelled, never hidden.** Verification and measurement run on the real Nemotron models and the real Nebius sandbox. The in-process `FakeSandbox` (`--fake-sandbox`) is for tests only and prints `mode: DEMO — in-process FakeSandbox, results are NOT live-verified`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
+
+- **Every model call is itemised.** Each call writes a `model.call` event naming the **role** (planner, coder, repairer, reporter, characteriser), the **tier and model id**, and the prompt / completion / billed tokens. The evidence bundle sums them per role and checks that the total equals the job's `tokens_spent`; any tokens it cannot attribute are reported as a number, not rounded away. A run recorded before this ledger says "not itemised" rather than guessing.
 
 ---
 
@@ -518,25 +520,29 @@ In **under a second** (measured: 0.7 s) that prints everything a change to `crea
 - **24 call sites**, all `static` — **14 naming `create` itself**, 8 of them in `src/`
 - **2 genuinely unresolvable dynamic dispatches**, both in `src/registry.py`
 
-Then run a job against the fixture:
+Then run a job — on the **real** Nemotron models and the **real** Nebius sandbox. Credentials go in the process environment only, never in a file:
 
 ```bash
+export NEBIUS_API_KEY=...  NEBIUS_PROJECT_ID=...
+export PRINCIPAL_REQUIRE_LIVE=1     # refuse to start unless both backends answer
+
 principal run \
-  --repo tests/fixtures/mini_repo \
-  --commit deadbeef \
-  --target src.auth.session.create \
-  --goal "make ttl keyword-only and update every call site" \
-  --fake-sandbox
+  --repo https://github.com/BugHunterX2101/principal-weak-repo \
+  --commit 3fd067a7d5b8f0152b54e1922be821ff1b2f786c \
+  --target src.pricing.calc_total \
+  --goal "Improve pricing.calc_total: remove magic constants and add type hints without changing behaviour"
 ```
 
-With no `NEBIUS_API_KEY`, that will clone the fixture, run its **14 tests green** to build the verified `C0` baseline, build the graph (**16 files, 30 symbols, 41 call edges**), compute the blast radius — then **abort at `Planning` with an HTTP 401** and report outcome **ERROR** ("the run did not complete. This says nothing about whether the change is safe"). That is correct behaviour and exactly the boundary described above. Set a key and the same command runs through to `Done` or `NoPR`.
+> **The repository must be a public git URL.** The Nebius sandbox clones it inside its own microVM, so a local path such as `tests/fixtures/mini_repo` cannot be reached and ends at the baseline step with exit `97` (`BASELINE_RED`). That is why this example uses a public repository.
 
-`--fake-sandbox` is the **only** way Principal runs without a real sandbox. Without it, missing credentials are a hard error (`refusing to run: …`), never a silent downgrade. A run is **LIVE** only when both the sandbox and the inference were real.
+Missing credentials are a **hard error** (`refusing to run: …`), never a silent downgrade, and a run is labelled **LIVE** only when both the sandbox and the inference were real.
+
+`--fake-sandbox` exists for the test suite and is **not** how Principal is verified or measured: it runs real `git` and `pytest` locally against the in-process `FakeSandbox` and prints `mode: DEMO … NOT live-verified`. Nothing in this README's claims about the platform rests on it.
 
 Run the tests:
 
 ```bash
-make test          # or: pytest — 395 tests, unit + integration
+make test          # or: pytest — 404 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -674,6 +680,8 @@ make bench         # the same run without the credential check first
 
 `bench/tasks.json` pins **two tasks, not a suite**: the bundled `mini_repo`, and the weak-tests repository where a green change can still be unverified. **No benchmark results are published here.**
 
+> **Only the weak-tests task can run live today.** The `mini_repo` task points at a local path, which the Nebius sandbox cannot clone (see the quick start), so on the real platform it would end as an infrastructure exclusion. It becomes a live task once the fixture is published as a public repository.
+
 ### Deploying the hosted demo
 
 ```bash
@@ -792,7 +800,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            395 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            404 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -854,7 +862,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **395 tests pass** | `python -m pytest -q` on the working tree | ✅ 395 passed in 245 s |
+| **404 tests pass** | `python -m pytest -q` on the working tree | ✅ 404 passed in 345 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, run for the previous commit | ✅ all 7 jobs succeeded |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | ✅ 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | ✅ all checks passed |

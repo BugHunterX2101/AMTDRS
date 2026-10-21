@@ -86,6 +86,6 @@ async def characterise(
     )
     completion = await client.complete(
         tier, [{"role": "user", "content": prompt}], temperature=temperature, job_id=job_id,
-        max_tokens=3000,
+        max_tokens=3000, role="characteriser",
     )
     return extract_module(completion.text), completion

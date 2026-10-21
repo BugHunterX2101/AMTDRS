@@ -143,6 +143,7 @@ async def compose_report(
     try:
         completion = await client.complete(
             tier, messages, schema=ReportOutput, temperature=0.3, job_id=job_id, max_tokens=2000,
+            role="reporter",
         )
         return ReportOutput.model_validate_json(_strip_fences(completion.text))
     except Exception:  # noqa: BLE001

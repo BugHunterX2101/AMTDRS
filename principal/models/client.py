@@ -11,7 +11,7 @@ import asyncio
 import logging
 import random
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from openai import APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
@@ -23,6 +23,9 @@ from principal.errors import Code, ModelEmptyResponse, PrincipalError
 from principal.models.budget import TokenBudget, estimate_tokens
 from principal.models.cache import CachedCompletion, DiskCache, cache_key
 from principal.models.protocols import build_request, extract_structured, text_of
+
+if TYPE_CHECKING:
+    from principal.db.events import EventLog
 
 logger = logging.getLogger("principal.models")
 
@@ -62,8 +65,13 @@ class ModelClient:
         capability: dict[str, Protocol],
         cache: DiskCache | None = None,
         forced_protocol: Protocol | None = None,
+        events: EventLog | None = None,
     ):
         self.store = store
+        # Where each call's `model.call` record goes. Optional so a client built
+        # without one still writes the record to the database, which is what the
+        # evidence reads; the log only adds the live stream and the trace file.
+        self.events = events
         self.budget = TokenBudget(store)
         self.model_ids = model_ids
         self.capability = dict(capability)
@@ -91,6 +99,7 @@ class ModelClient:
         temperature: float = 0.0,
         job_id: str | None = None,
         max_tokens: int = 4000,
+        role: str | None = None,
     ) -> Completion:
         model = self.model_ids[tier]
         chosen = protocol or self.protocol_for(model)
@@ -109,14 +118,17 @@ class ModelClient:
         if self.cache is not None:
             cached = self.cache.get(key)
             if cached is not None:
-                if job_id is not None and reserved:
-                    self.budget.settle(job_id, estimate, cached.prompt_tokens + cached.completion_tokens)
-                return Completion(
+                hit = Completion(
                     text=cached.text, prompt_tokens=cached.prompt_tokens,
                     completion_tokens=cached.completion_tokens,
                     used_reasoning_fallback=cached.used_reasoning_fallback,
                     protocol=Protocol(cached.protocol), from_cache=True,
                 )
+                if job_id is not None and reserved:
+                    billed = cached.prompt_tokens + cached.completion_tokens
+                    self.budget.settle(job_id, estimate, billed)
+                    self._record_call(job_id, role, tier, model, hit, billed)
+                return hit
 
         try:
             completion, downgraded_to, abandoned = await self._call_with_retries(
@@ -140,6 +152,7 @@ class ModelClient:
                 completion.prompt_tokens + abandoned[0] + completion.completion_tokens + abandoned[1]
             )
             self.budget.settle(job_id, estimate, actual)
+            self._record_call(job_id, role, tier, model, completion, actual)
 
         if self.cache is not None:
             self.cache.put(
@@ -152,6 +165,26 @@ class ModelClient:
                 ),
             )
         return completion
+
+    def _record_call(
+        self, job_id: str, role: str | None, tier: Tier, model: str, completion: Completion, billed: int,
+    ) -> None:
+        """One `model.call` record per billed call, written here and not by the
+        caller, so a completion that a caller goes on to reject (a diff that will
+        not parse) is still attributed. `billed` is what the budget was charged,
+        abandoned retries included, so the records sum to `tokens_spent`."""
+        payload = {
+            "role": role or "unlabelled", "tier": tier.value, "model": model,
+            "prompt_tokens": completion.prompt_tokens, "completion_tokens": completion.completion_tokens,
+            "billed_tokens": billed, "from_cache": completion.from_cache,
+            "protocol": completion.protocol.value,
+            "reasoning_fallback": completion.used_reasoning_fallback,
+        }
+        if self.events is not None:
+            self.events.emit(job_id, "model.call", payload)
+        else:
+            with self.store.tx():
+                self.store.append_event(job_id, "model.call", payload)
 
     async def _call_with_retries(
         self, model: str, messages: list[dict[str, Any]], protocol: Protocol,

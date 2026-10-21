@@ -91,7 +91,7 @@ async def plan(
         if last_error is not None:
             msgs.append({"role": "user", "content": f"Your previous response was invalid: {last_error}\n\nTry again, returning only the corrected JSON object."})
         completion = await client.complete(
-            tier, msgs, schema=Plan, temperature=0.0, job_id=job_id, max_tokens=6000
+            tier, msgs, schema=Plan, temperature=0.0, job_id=job_id, max_tokens=6000, role="planner",
         )
         try:
             parsed = Plan.model_validate_json(_strip_fences(completion.text))

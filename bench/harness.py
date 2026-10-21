@@ -78,6 +78,7 @@ async def run_one(
         store=store, base_url=settings.principal_inference_base, api_key=settings.nebius_api_key,
         model_ids={t: settings.model_id(t) for t in Tier}, capability=capability,
         cache=DiskCache(settings.principal_cache_dir, enabled=settings.principal_model_cache),
+        events=events,
     )
 
     sandbox = _make_sandbox(settings)

@@ -53,6 +53,33 @@ def test_canonical_text_is_a_git_applicable_unified_diff():
     assert text.startswith("--- a/src/pricing.py\n+++ b/src/pricing.py\n@@ -")
 
 
+def test_a_closing_marker_the_model_indented_does_not_become_a_context_line():
+    """Seen live from Nano: ` DIFF>>>` with a leading space. The space was kept as
+    the hunk's last line, an empty context line that matches nothing in the file,
+    so a correct diff was rejected as a context mismatch."""
+    raw = (
+        "<<<DIFF\n--- a/src/pricing.py\n+++ b/src/pricing.py\n@@\n"
+        "-    subtotal = sum(price * qty for price, qty in items)\n"
+        "+    subtotal = sum(p * q for p, q in items)\n DIFF>>>"
+    )
+    assert "sum(p * q for p, q in items)" in _apply(raw)
+
+
+def test_a_real_blank_context_line_before_the_marker_is_kept():
+    raw = _wrap("@@\n-TAX_RATE = 0.2\n+TAX_RATE: float = 0.2\n ")
+    assert "TAX_RATE: float = 0.2\n\ndef calc_total" in _apply(raw)
+
+
+def test_a_bare_closing_marker_is_accepted_when_the_full_one_is_missing():
+    """Seen live from Super: `>>>` alone, then the repairer's KIND line. A line
+    that is exactly `>>>` is not a valid diff line, so it can only be the end."""
+    raw = (
+        "<<<DIFF\n--- a/src/pricing.py\n+++ b/src/pricing.py\n@@\n"
+        "-TAX_RATE = 0.2\n+TAX_RATE: float = 0.2\n>>>\n\nKIND: other"
+    )
+    assert "TAX_RATE: float = 0.2\n" in _apply(raw)
+
+
 def test_context_that_is_not_in_the_file_is_rejected():
     raw = _wrap("@@\n-TAX_RATE = 0.99\n+TAX_RATE = 0.5")
     with pytest.raises(DiffUnparseable):

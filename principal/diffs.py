@@ -29,6 +29,9 @@ from principal.errors import DiffUnparseable
 OPEN = "<<<DIFF"
 CLOSE = "DIFF>>>"
 BLOCK = re.compile(re.escape(OPEN) + r"\r?\n(.*?)" + re.escape(CLOSE), re.DOTALL)
+# Some replies end the block with a bare `>>>`. No diff line can be exactly
+# `>>>` (every one starts with space, + or -), so it can only be the end.
+BARE_BLOCK = re.compile(re.escape(OPEN) + r"\r?\n(.*?)\r?\n>>>[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
 @dataclass(slots=True)
@@ -50,11 +53,21 @@ def _strip_prefix(path: str) -> str:
 
 def extract_diff_block(raw_text: str) -> str:
     blocks = BLOCK.findall(raw_text)
+    indented_closer = bool(blocks)
+    if not blocks:
+        blocks = BARE_BLOCK.findall(raw_text)
     if not blocks:
         raise DiffUnparseable("no <<<DIFF ... DIFF>>> block found in the model output")
     if len(blocks) > 1:
         raise DiffUnparseable(f"expected exactly one diff block, found {len(blocks)}")
-    return blocks[0].strip("\n")
+    body = blocks[0]
+    # ` DIFF>>>` indented by the model leaves a whitespace-only last line, which
+    # would read as an empty context line. A real blank context line is followed
+    # by a newline before the marker, so it does not end up here.
+    last = body.rsplit("\n", 1)[-1]
+    if indented_closer and last and not last.strip():
+        body = body[: -len(last)]
+    return body.strip("\n")
 
 
 def parse_diff(raw_text: str) -> ParsedDiff:

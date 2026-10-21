@@ -134,11 +134,14 @@ class ModelClient:
             completion, downgraded_to, abandoned = await self._call_with_retries(
                 model, messages, chosen, schema, temperature, max_tokens
             )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             # The reservation was provisional spend against a call that never
             # produced anything billable — refund it, or every failed call
             # (a timeout, a 5xx that exhausts retries, a malformed diff) would
             # permanently burn its estimate out of the job's real budget.
+            # A cancelled call is the same: the scheduler cancels the losing
+            # candidates once one goes green, and `CancelledError` is not an
+            # `Exception`, so it has to be named.
             if job_id is not None and reserved:
                 self.budget.release(job_id, estimate)
             raise

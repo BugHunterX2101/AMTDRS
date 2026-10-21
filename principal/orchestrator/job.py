@@ -215,11 +215,12 @@ async def _characterise(
         )
     ]
 
-    test_source, completion = await run_characteriser(
+    # The client charges this call against `job_id`; adding it here again would
+    # double-count it.
+    test_source, _ = await run_characteriser(
         models, job_id=job_id, target_fqn=target.fqn, target_path=target.path,
         signature=target.signature or "", source=source, call_sites=call_sites,
     )
-    store.add_tokens(job_id, completion.prompt_tokens + completion.completion_tokens)
 
     test_path = characterisation_path(target.fqn)
     assert job.baseline_image is not None

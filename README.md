@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **404 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** · CI green on Linux **and** Windows, Python 3.11 **and** 3.12. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-21**: `pytest -q` → **406 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -155,6 +155,13 @@ One end-to-end job has been run on the weak-tests repository ([`principal-weak-r
 - **6 attempts**, **17,822 tokens** of a 2,000,000 budget, sandbox cost **$0.0037**.
 
 That is a single run, not a rate. Principal produced a change whose tests pass, and then **refused to call it verified** — which is the point. *(This job predates provenance recording, so its stored evidence bundle reads "NOT LIVE · unknown"; the label is conservative, and newer runs record LIVE/NOT LIVE at start.)*
+
+**A second live run, same repo and goal, model cache off** (every call went to the platform), after the token ledger was fixed:
+
+- **Different result — the same job is not deterministic.** All three Nano candidates and both Super repairs failed (two unparseable diffs, one empty reply, one context mismatch, one rejected patch), so the task was discarded, **no change was produced**, and the outcome was **UNVERIFIED** with the repository left untouched. The first run above produced a change; this one did not.
+- **Models, per role, from the ledger:** planner on **Nemotron 3 Ultra** (`nvidia/Nemotron-3-Ultra-550b-a55b`, 1 call, 2,824 tokens), coders on **Nemotron 3 Nano** (2 billed calls, 20,622 tokens), repairers on **Nemotron 3 Super** (2 calls, 3,265 tokens).
+- **The ledger reconciles: 26,711 tokens charged, 26,711 attributed, 0 unattributed.** Before the fix the same job charged 26,626 against 22,761 attributed, because a cancelled or failed model call kept its up-front reservation. Two bugs caused it: a cancelled call never refunded its reservation, and the characterisation step charged its call twice (the second one did not fire in this run — it is covered by a test, not by this measurement).
+- It is still one run. It shows the accounting is sound and the platform is reachable; it does not show a success rate.
 
 ---
 
@@ -542,7 +549,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 404 tests, unit + integration
+make test          # or: pytest — 406 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -800,7 +807,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            404 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            406 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -862,7 +869,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **404 tests pass** | `python -m pytest -q` on the working tree | ✅ 404 passed in 345 s |
+| **406 tests pass** | `python -m pytest -q` on the working tree | ✅ 406 passed in 225 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, run for the previous commit | ✅ all 7 jobs succeeded |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | ✅ 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | ✅ all checks passed |
@@ -873,6 +880,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **5 MCP tools** | read `mcp_code_graph/server.py` | ✅ |
 | **Candidate temperatures 0.0 / 0.4 / 0.8**; all defaults in the tunables table | read `scheduler.py` and `config.py` | ✅ |
 | **Real run: Done → UNVERIFIED, 0 of 1 faults, 17,822 tokens, $0.0037, real operation ids** | rendered the stored evidence bundle and inspected the trace | ✅ — but that job's provenance reads "unknown" |
+| **Second live run (cache off): UNVERIFIED, no change produced, ledger 26,711 charged = 26,711 attributed** | read `principal.db` read-only: `job.tokens_spent` against the sum of `model.call.billed_tokens`, plus the per-role models | ✅ one run; the outcome differs from the first run on the same goal, so neither is a rate |
 | **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard | ✅ matches 2026-10-21 |
 | **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card | ✅ (the card is inconsistent on experts per token, so that is not claimed) |
 | **Rate limits: 60 RPM, 400k TPM, +20% / 15 min at ≥80%, 20× ceiling** | Nebius rate-limit docs (via search of the docs) | ✅ |

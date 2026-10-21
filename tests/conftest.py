@@ -37,6 +37,8 @@ def settings(tmp_path: Path) -> Settings:
         nebius_api_key="",
         nebius_project_id="",
         principal_model_cache=False,
+        # A developer's `.env` can set this for live runs; the suite must not read it.
+        principal_require_live=False,
     )
 
 

@@ -14,6 +14,7 @@ about the platform.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -142,6 +143,70 @@ async def test_the_evidence_breaks_usage_down_and_reconciles(store, events, job_
     assert by[("coder", "nano-id")]["billed_tokens"] == 280
     assert calls["attributed_tokens"] == 420
     assert calls["unattributed_tokens"] == 0
+
+
+async def test_a_cancelled_call_gives_its_reservation_back(store, events, job_id):
+    """The leak the first uncached live run exposed: 26,626 tokens charged, 22,761
+    in the ledger. The scheduler cancels the losing candidates once one goes green,
+    `CancelledError` is not an `Exception`, and the reservation made on entry was
+    neither settled nor released, so it sat in `tokens_spent` with no record."""
+    client = _client(store, events)
+
+    async def cancelled(model, messages, chosen, schema, temperature, max_tokens):
+        raise asyncio.CancelledError
+
+    client._call_with_retries = cancelled  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    assert store.get_job(job_id).tokens_spent == 0
+    assert _calls(store, job_id) == []
+
+
+async def test_the_characterise_step_does_not_charge_its_model_call_twice(
+    store, events, job_id, settings, tmp_path, monkeypatch,
+):
+    """`ModelClient.complete` settles the call against `job_id`; `_characterise`
+    used to add the same prompt+completion again, so the ledger summed to half of
+    what the job reported for that call. Nothing past the model call runs here."""
+    from types import SimpleNamespace
+
+    from principal.agents import characteriser
+    from principal.orchestrator import job as job_module
+
+    class Stop(Exception):
+        pass
+
+    store.update_job(job_id, baseline_image="c0")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    target = SimpleNamespace(
+        id=1, fqn="m.f", path="src/m.py", signature="()", line_start=1, line_end=2,
+    )
+
+    async def snapshot(*args, **kwargs):
+        return tmp_path
+
+    async def from_uuid(image):
+        return image
+
+    async def stop_after_the_model_call(*args, **kwargs):
+        raise Stop
+
+    monkeypatch.setattr(job_module, "ensure_snapshot", snapshot)
+    monkeypatch.setattr(job_module, "establish_safety_net", stop_after_the_model_call)
+    monkeypatch.setattr(characteriser, "extract_module", lambda text: text)
+
+    with pytest.raises(Stop):
+        await job_module._characterise(
+            job_id, store, events, SimpleNamespace(from_uuid=from_uuid), _client(store, events),
+            "no-such-graph", target, settings,
+        )
+
+    billed = sum(c["billed_tokens"] for c in _calls(store, job_id))
+    assert billed == 140
+    assert store.get_job(job_id).tokens_spent == billed
 
 
 async def test_unattributed_tokens_are_reported_not_hidden(store, events, job_id):

@@ -163,6 +163,12 @@ That is a single run, not a rate. Principal produced a change whose tests pass, 
 - **The ledger reconciles: 26,711 tokens charged, 26,711 attributed, 0 unattributed.** Before the fix the same job charged 26,626 against 22,761 attributed, because a cancelled or failed model call kept its up-front reservation. Two bugs caused it: a cancelled call never refunded its reservation, and the characterisation step charged its call twice (the second one did not fire in this run — it is covered by a test, not by this measurement).
 - It is still one run. It shows the accounting is sound and the platform is reachable; it does not show a success rate.
 
+**A third live run, on a repository with strong tests** (the bundled `mini_repo` fixture, published as the orphan branch `fixture/mini-repo` so the sandbox can clone it; goal: make `create()`'s `ttl` keyword-only and update every call site):
+
+- Outcome **UNVERIFIED**, state `NoPR`: the planner (Ultra) split the goal into **6 tasks**, **4 settled** with a winning candidate that passed the local tests, **2 were discarded** after Nano and Super both failed to produce a usable diff, and 2 of 6 exceeds the 30% discard cap, so the job stopped with the repository unchanged. **It did not reach VERIFIED.**
+- **The ledger reconciles with many cancelled candidates in play: 58,409 tokens charged, 58,409 attributed, 0 unattributed.** Most failures were `DIFF_UNPARSEABLE` (no `<<<DIFF … DIFF>>>` block in the reply); at least one Nano reply used 2,985 of its 3,000-token cap, which may be truncation, though this run does not prove it.
+- Three live runs on two repositories now exist: none is VERIFIED, and the first run's tests passed but could not cover a dynamic call. This is evidence about the pipeline's honesty, **not** a claim that it succeeds on this task.
+
 ---
 
 ## Architecture
@@ -881,6 +887,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **Candidate temperatures 0.0 / 0.4 / 0.8**; all defaults in the tunables table | read `scheduler.py` and `config.py` | ✅ |
 | **Real run: Done → UNVERIFIED, 0 of 1 faults, 17,822 tokens, $0.0037, real operation ids** | rendered the stored evidence bundle and inspected the trace | ✅ — but that job's provenance reads "unknown" |
 | **Second live run (cache off): UNVERIFIED, no change produced, ledger 26,711 charged = 26,711 attributed** | read `principal.db` read-only: `job.tokens_spent` against the sum of `model.call.billed_tokens`, plus the per-role models | ✅ one run; the outcome differs from the first run on the same goal, so neither is a rate |
+| **Third live run (mini_repo, cache off): UNVERIFIED, 4 of 6 tasks settled, 2 discarded, ledger 58,409 = 58,409** | same read-only ledger query; the task states and attempt verdicts from `principal.db` | ✅ one run; not VERIFIED, and the truncation explanation for the diff failures is a hypothesis, not a finding |
 | **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard | ✅ matches 2026-10-21 |
 | **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card | ✅ (the card is inconsistent on experts per token, so that is not claimed) |
 | **Rate limits: 60 RPM, 400k TPM, +20% / 15 min at ≥80%, 20× ceiling** | Nebius rate-limit docs (via search of the docs) | ✅ |

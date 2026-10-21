@@ -40,4 +40,4 @@ def test_legacy_login():
 
 def test_dispatch_reaches_create():
     """The dynamic path. Nothing static connects this call to `create`."""
-    assert dispatch("create", "erin", 15).ttl == 15
+    assert dispatch("create", "erin", ttl=15).ttl == 15

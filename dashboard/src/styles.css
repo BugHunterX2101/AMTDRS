@@ -5,7 +5,13 @@
   --line: #242a34;
   --text: #e6e9ef;
   --muted: #8b95a5;
-  --dim: #5c6675;
+  /* Raised from #5c6675 (about 3:1 on --panel) to clear 4.5:1 for the small
+     labels and empty-state hints this colour is used on. */
+  --dim: #7c8697;
+
+  /* Strong curves: the built-in ease-out is too weak to read as intentional. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   --green: #3fb950;
   --red: #f85149;
@@ -24,6 +30,9 @@
 
 html, body, #root { height: 100%; }
 
+/* No grey flash on tap: every tappable element has its own :active state below. */
+html { -webkit-tap-highlight-color: transparent; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -38,18 +47,56 @@ body {
   overflow-x: hidden;
 }
 
-/* --------------------------------------------------------------- backdrop -- */
+/* ---------------------------------------------------------------- ambient -- */
 
-/* The WebGL lattice sits behind everything, never receives a pointer event,
-   and is the only fixed-position element on the page. */
-.backdrop {
+/* The room takes the colour of the verdict, and costs nothing to do it. This
+   replaced a full-screen WebGL lattice that ran under a data-dense console and,
+   because every panel blurred what was behind it, forced a re-blur of a moving
+   canvas for each of twelve panels on every frame. Here the five moods are
+   static gradients stacked in one layer, and a change is an opacity crossfade:
+   compositor-only, no layout, no paint, no GPU work while nothing changes. */
+.ambient {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
   z-index: 0;
   pointer-events: none;
-  display: block;
+  contain: strict;
+}
+.ambient i {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out);
+}
+.ambient .a-run {
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(163, 113, 247, 0.16), transparent 70%),
+    radial-gradient(800px 480px at 92% 4%, rgba(63, 185, 80, 0.10), transparent 70%);
+}
+.ambient .a-verified {
+  background: radial-gradient(1000px 560px at 50% -12%, rgba(63, 185, 80, 0.20), transparent 72%);
+}
+.ambient .a-unverified {
+  background: radial-gradient(1000px 560px at 50% -12%, rgba(210, 153, 34, 0.17), transparent 72%);
+}
+.ambient .a-failed {
+  background: radial-gradient(1000px 560px at 50% -12%, rgba(248, 81, 73, 0.16), transparent 72%);
+}
+.ambient .a-error {
+  background: radial-gradient(1000px 560px at 50% -12%, rgba(163, 113, 247, 0.18), transparent 72%);
+}
+.ambient[data-mood="idle"] .a-run,
+.ambient[data-mood="run"] .a-run,
+.ambient[data-mood="verified"] .a-verified,
+.ambient[data-mood="unverified"] .a-unverified,
+.ambient[data-mood="failed"] .a-failed,
+.ambient[data-mood="error"] .a-error {
+  opacity: 1;
+}
+.ambient[data-mood="idle"] .a-run { opacity: 0.6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient i { transition: none; }
 }
 
 /* ------------------------------------------------------------------ layout -- */
@@ -94,9 +141,11 @@ body {
   font-size: 15px;
   transition: color 0.15s, border-color 0.15s;
 }
-.masthead .home-link:hover {
-  color: var(--text);
-  border-color: var(--dim);
+@media (hover: hover) and (pointer: fine) {
+  .masthead .home-link:hover {
+    color: var(--text);
+    border-color: var(--dim);
+  }
 }
 
 .masthead h1 {
@@ -133,8 +182,27 @@ body {
   align-items: start;
 }
 
+/* One column: the three stacks dissolve into a single flow and each panel takes
+   the position its data-o says. A phone reads the verdict, the pipeline and the
+   checks first; the form and the reference panels come after. (display: contents
+   on .stack is what lets order work across the stacks.) */
 @media (max-width: 1200px) {
-  .columns { grid-template-columns: 1fr; }
+  /* stretch, not the grid's `start`: in a column, `start` sizes each panel to its
+     widest line of content, which is how one long log row once made the page 977px. */
+  .columns { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+  .columns > .stack { display: contents; } /* beats the later `.stack { display: flex }` */
+  [data-o="0"] { order: 0; }
+  [data-o="1"] { order: 1; }
+  [data-o="2"] { order: 2; }
+  [data-o="3"] { order: 3; }
+  [data-o="4"] { order: 4; }
+  [data-o="5"] { order: 5; }
+  [data-o="6"] { order: 6; }
+  [data-o="7"] { order: 7; }
+  [data-o="8"] { order: 8; }
+  [data-o="9"] { order: 9; }
+  [data-o="10"] { order: 10; }
+  [data-o="11"] { order: 11; }
 }
 
 .panel {
@@ -145,18 +213,10 @@ body {
   position: relative;
 }
 
-/* Glass, but only barely. The lattice behind should register as depth in the
-   gutters, never as texture competing with monospace evidence inside a panel
-   — so the fill stays at 0.88 and the blur does the rest. Guarded because a
-   browser without backdrop-filter must fall back to the solid fill, not to a
-   translucent panel over a moving background. */
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .panel {
-    background: rgba(18, 21, 26, 0.88);
-    backdrop-filter: blur(14px) saturate(1.1);
-    -webkit-backdrop-filter: blur(14px) saturate(1.1);
-  }
-}
+/* Panels are solid. They used to be 88% glass with a 14px backdrop blur; the
+   blur existed to calm the moving lattice behind them, the lattice is gone, and
+   twelve blurred layers were the single biggest paint cost on this page. A
+   solid fill is also what keeps monospace evidence legible. */
 
 /* -- dual-tone section accents ------------------------------------------- --
    Each panel carries a two-colour rule whose pair states what the section is
@@ -237,20 +297,51 @@ input, textarea, select, button {
 input, textarea { font-family: var(--mono); font-size: 12.5px; }
 textarea { resize: vertical; min-height: 60px; }
 
+/* iOS Safari zooms the whole page when focus lands on an input under 16px and
+   does not zoom back. Raise the size where the primary input is a finger,
+   rather than disabling zoom, which is an accessibility failure. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
+}
+
 input:focus, textarea:focus { outline: 2px solid rgba(88, 166, 255, 0.4); outline-offset: -1px; }
+
+/* Keyboard focus is visible everywhere, not only in form fields. */
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible { outline-offset: -1px; }
+
+/* Tappable things respond on press, not on release, and skip the double-tap
+   delay. Press feedback is a small scale with a strong ease-out; it is the same
+   on every input type, which hover-only feedback is not. */
+button, a, summary, [role="button"], .candidate {
+  touch-action: manipulation;
+}
+button, .candidate, .evidence-links .btn {
+  transition: transform 140ms var(--ease-out), background-color 140ms ease, border-color 140ms ease,
+    filter 140ms ease, opacity 140ms ease;
+}
+button:active:not(:disabled), .candidate:active, .evidence-links .btn:active {
+  transform: scale(0.97);
+}
 
 .field + .field { margin-top: 11px; }
 
 button.primary {
   margin-top: 14px;
-  background: var(--blue);
-  border-color: var(--blue);
-  color: #06121f;
+  /* Green, to match the landing page's primary action: the same colour should
+     mean the same thing on both surfaces. */
+  background: var(--green);
+  border-color: var(--green);
+  color: #052e11;
   font-weight: 600;
   cursor: pointer;
 }
-button.primary:hover { filter: brightness(1.08); }
 button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+/* Hover styles only where hovering exists. On touch the first tap would apply
+   :hover and leave it stuck there. */
+@media (hover: hover) and (pointer: fine) {
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+}
 
 /* ---------------------------------------------------------------- pipeline -- */
 
@@ -288,7 +379,9 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   border-color: rgba(248, 81, 73, 0.45);
   background: rgba(248, 81, 73, 0.08);
 }
-.cancel-btn:hover { background: rgba(248, 81, 73, 0.16); }
+@media (hover: hover) and (pointer: fine) {
+  .cancel-btn:hover { background: rgba(248, 81, 73, 0.16); }
+}
 
 /* ------------------------------------------------------------- economics -- */
 
@@ -323,7 +416,10 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 
 .stat { background: var(--panel-2); border-radius: 8px; padding: 9px 11px; }
 .stat .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
-.stat .v { font-family: var(--mono); font-size: 17px; margin-top: 2px; }
+/* Counters tick while a run is live. Tabular figures keep each digit the same
+   width, so a changing number never nudges the text beside it. */
+.stat .v { font-family: var(--mono); font-size: 17px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kv-line .mono, .log .seq { font-variant-numeric: tabular-nums; }
 
 /* -------------------------------------------------------------- task board -- */
 
@@ -366,8 +462,9 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   background: var(--panel);
   transition: border-color 0.15s, opacity 0.3s;
 }
-.candidate:hover { border-color: var(--blue); }
-.candidate:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .candidate:hover { border-color: var(--blue); }
+}
 .candidate .n { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .candidate .verdict { font-family: var(--mono); font-size: 12px; margin-top: 3px; }
 .candidate .gate { font-size: 11px; color: var(--dim); margin-top: 2px; }
@@ -414,6 +511,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .outcome.aborted { background: rgba(248, 81, 73, 0.09); border: 1px solid rgba(248, 81, 73, 0.35); }
 .outcome.error { background: rgba(163, 113, 247, 0.09); border: 1px solid rgba(163, 113, 247, 0.4); }
 .outcome .reasons { margin: 8px 0 0; padding-left: 18px; color: var(--muted); line-height: 1.55; }
+.outcome.pending { min-height: 132px; background: rgba(18, 21, 26, 0.7); border: 1px dashed var(--line); }
 .outcome.idle { background: rgba(18, 21, 26, 0.7); border: 1px dashed var(--line); }
 .outcome.idle h2 { color: var(--muted); }
 .outcome h2 { margin: 0 0 6px; font-size: 14px; }
@@ -440,7 +538,27 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   font-size: 12px; padding: 6px 11px; border-radius: 6px; text-decoration: none;
   color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
 }
-.evidence-links .btn:hover { border-color: var(--green); }
+@media (hover: hover) and (pointer: fine) {
+  .evidence-links .btn:hover { border-color: var(--green); }
+}
+
+/* Impact and strength share one panel: two short sections, side by side where
+   there is room, never two near-empty cards. */
+.checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.checks > section { padding: 14px; min-width: 0; }
+.checks > section + section { border-left: 1px solid var(--line); }
+.checks h3 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+@media (max-width: 900px) {
+  .checks { grid-template-columns: 1fr; }
+  .checks > section + section { border-left: 0; border-top: 1px solid var(--line); }
+}
 
 /* Three steps, always visible, so the console reads as a path and not a wall. */
 .steps {
@@ -461,11 +579,18 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 
 /* ------------------------------------------------------------------- log -- */
 
-.log { font-family: var(--mono); font-size: 11px; line-height: 1.65; max-height: 340px; overflow-y: auto; }
-.log .row { display: flex; gap: 8px; padding: 1px 0; }
-.log .seq { color: var(--dim); min-width: 34px; text-align: right; }
+.log { font-family: var(--mono); font-size: 11px; line-height: 1.65; max-height: 340px; overflow-y: auto; overscroll-behavior: contain; }
+/* A flex item will not shrink below its content unless told it may. Without
+   min-width: 0 the nowrap payload set the minimum width of the whole page, and
+   on a phone that widened the layout viewport to 977px. */
+.log .row { display: flex; gap: 8px; padding: 1px 0; min-width: 0; }
+.log .seq { color: var(--dim); min-width: 34px; text-align: right; flex: none; }
 .log .kind { color: var(--blue); min-width: 150px; flex: none; white-space: nowrap; }
-.log .data { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .data { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+@media (max-width: 640px) {
+  .log .kind { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+}
+.panel, .stack { min-width: 0; }
 
 /* ---------------------------------------------------------------- drawer -- */
 
@@ -474,6 +599,15 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   z-index: 40;
+  animation: scrim-in 200ms ease-out;
+}
+
+/* A drawer is occasional, so it earns a short entrance: it slides in from the
+   edge it will be dismissed toward (translate only, never from scale(0)). */
+@keyframes drawer-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawer-scrim { animation: none; }
 }
 
 .drawer {
@@ -487,6 +621,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   z-index: 41;
   display: flex;
   flex-direction: column;
+  animation: drawer-in 260ms var(--ease-drawer);
 }
 .drawer:focus { outline: none; }
 
@@ -500,7 +635,8 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .drawer > header h2 { margin: 0; font-size: 14px; font-family: var(--mono); }
 .drawer > header button { width: auto; padding: 5px 11px; cursor: pointer; }
 
-.drawer > .body { padding: 16px; overflow-y: auto; }
+/* Scrolling to the end of a diff must not hand the scroll to the page behind. */
+.drawer > .body { padding: 16px; overflow-y: auto; overscroll-behavior: contain; }
 
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 12.5px; margin-bottom: 16px; }
 .kv dt { color: var(--muted); }

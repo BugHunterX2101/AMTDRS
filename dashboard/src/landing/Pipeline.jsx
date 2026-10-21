@@ -48,6 +48,26 @@ const GATES = [
     body: "A deterministic scanner — not a model — walks the baseline tree and the patched tree separately and diffs the findings: hardcoded secrets, eval/exec on untrusted input, unsafe deserialisation, shell and SQL injection shapes, disabled TLS verification. Only fingerprints absent from the baseline and present in the patch are reported, so a pre-existing issue elsewhere in the file never blocks an unrelated refactor. A patch that introduces a new one is discarded before publishing, no exceptions.",
     reject: "Rejects: any finding whose fingerprint is new relative to the baseline scan.",
   },
+  {
+    n: 6,
+    label: "Blast-radius check",
+    where: "local · deterministic",
+    cost: "milliseconds",
+    kind: "local",
+    check: true,
+    body: "Green tests only prove the tests are green. After integration, what the patch actually changed is compared with what the code graph says it should have reached: call sites still using the old form, files outside the radius, and dynamic paths such as `getattr` or a registry that nothing in the suite exercises. A definite incompatibility fails the run. A path no test reaches is reported as unverified instead of being waved through.",
+    reject: "Fails: a caller or dependent the patch left incompatible. Flags: anything no test exercises.",
+  },
+  {
+    n: 7,
+    label: "Strength audit",
+    where: "Token Factory Sandbox",
+    cost: "seconds",
+    kind: "sandbox",
+    check: true,
+    body: "Would the tests that just passed have noticed a mistake? Small deliberate faults — a flipped comparison, an off-by-one — are injected one at a time into only the lines the refactor changed, and the covering tests re-run. A fault the suite misses is a located gap. This is a measurement, not a proof: a high score does not show equivalence, and a run that could not be measured says so rather than defaulting to a flattering number.",
+    reject: "Flags: tests that miss injected faults in the changed lines. Never decides alone.",
+  },
 ];
 
 export function Pipeline() {
@@ -59,12 +79,13 @@ export function Pipeline() {
       <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
         <div className="eyebrow">How it works</div>
         <h2 className="section-title">
-          Five gates. Nothing moves right without passing every one.
+          Five gates reject. Two checks say how far to trust what is left.
         </h2>
         <p className="section-lede">
-          Gates 1, 2 and 5 never touch a sandbox — that's deliberate. Most bad
-          candidates die for free, in-process, which is what makes it affordable to
-          generate several competing attempts per task instead of one.
+          Scope, syntax, security and the blast-radius check never touch a sandbox —
+          that's deliberate. Most bad candidates die for free, in-process, which is
+          what makes it affordable to generate several competing attempts per task
+          instead of one. None of the seven involves a model.
         </p>
 
         <div className="gates" style={{ marginTop: 40 }}>

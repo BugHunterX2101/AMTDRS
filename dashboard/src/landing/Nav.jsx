@@ -3,9 +3,9 @@ import { Github, Terminal } from "./icons";
 
 const LINKS = [
   { href: "#how-it-works", label: "How it works" },
+  { href: "#outcomes", label: "Outcomes" },
   { href: "#evidence", label: "Evidence" },
   { href: "#compare", label: "Compare" },
-  { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
 ];
 

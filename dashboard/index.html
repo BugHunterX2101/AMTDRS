@@ -19,12 +19,24 @@
     <meta property="og:url" content="https://amtdrs.onrender.com/" />
     <meta name="twitter:card" content="summary_large_image" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta name="theme-color" content="#0b0d10" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- The headline face, fetched in parallel with the CSS rather than after it. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      href="./src/landing/fonts/inter-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
+
+    <!-- Open the console the instant it is hovered or focused. Prerender is
+         ignored by browsers that do not support it, so this costs nothing
+         elsewhere. The console only reads /healthz on load. -->
+    <script type="speculationrules">
+      { "prerender": [{ "urls": ["./app/"], "eagerness": "moderate" }] }
+    </script>
   </head>
   <body>
     <div id="root"></div>

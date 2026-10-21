@@ -36,8 +36,11 @@ export function runMode(provenance, health) {
   };
 }
 
-export function Masthead({ health, provenance, connected, jobId, running, onCancel }) {
+export function Masthead({ health, provenance, connected, finished, jobId, running, onCancel }) {
   const mode = runMode(provenance, health);
+  // "disconnected" on a run that simply ended read as a fault. A finished run
+  // has no stream to be connected to, so say that instead.
+  const stream = finished ? "finished" : connected ? "streaming" : running ? "reconnecting…" : "idle";
   return (
     <header className="masthead">
       <a href="/" className="home-link" aria-label="Back to the overview page">
@@ -68,8 +71,8 @@ export function Masthead({ health, provenance, connected, jobId, running, onCanc
         {mode.label}
       </span>
       {jobId && (
-        <span className={`badge ${connected ? "live" : "off"}`}>
-          {connected ? "streaming" : "disconnected"}
+        <span className={`badge ${connected ? "live" : "off"}`} role="status">
+          {stream}
         </span>
       )}
       {running && (
@@ -354,12 +357,15 @@ export function RadiusPanel({ radius }) {
 export function TaskBoard({ job, onSelect }) {
   const tasks = Object.values(job.tasks);
   if (tasks.length === 0) {
+    // Say what actually happened. A run that ended before planning has no tasks,
+    // and describing how planning works under it reads as if it had run.
+    const ended = ["Done", "NoPR", "Aborted", "NoSafetyNet"].includes(job.state);
     return (
       <div className="body">
         <p className="empty">
-          Nemotron 3 Ultra decomposes the goal into single-file tasks. Each task then
-          becomes a race between independent candidates — first to pass its tests wins,
-          and the losers are cancelled.
+          {ended
+            ? "No tasks were planned: the run ended before the goal was decomposed."
+            : "Nemotron 3 Ultra decomposes the goal into single-file tasks. Each task then becomes a race between independent candidates — first to pass its tests wins, and the losers are cancelled."}
         </p>
       </div>
     );
@@ -479,6 +485,28 @@ function short(uuid) {
 
 /* ---------------------------------------------------------------- outcome -- */
 
+/* Platform errors reach the page as raw exception text. A visitor who opens the
+   hosted console without an inference key should read what happened and what
+   still worked, not a Python dict. Anything unrecognised is passed through,
+   bounded so a stack trace cannot take over the card. */
+export function friendlyReason(text) {
+  if (!text) return text;
+  if (/HTTP 401|unauthenticated|Unable authenticate/i.test(text)) {
+    return (
+      "No valid inference key is configured on this server, so planning could not start. " +
+      "The baseline, code graph and blast radius shown here ran for real; generating patches " +
+      "needs a Token Factory key."
+    );
+  }
+  if (/HTTP 403/i.test(text)) {
+    return "The platform refused the request (403). The key may lack access to this project's Sandboxes.";
+  }
+  if (/HTTP 429|rate.?limit/i.test(text)) {
+    return "The platform is rate-limiting this key. Nothing was concluded about the change; run it again shortly.";
+  }
+  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
+}
+
 const VERDICT_CLASS = { VERIFIED: "pr", UNVERIFIED: "nopr", FAILED: "aborted", ERROR: "error" };
 const VERDICT_TITLE = {
   VERIFIED: "Verified",
@@ -498,7 +526,7 @@ function Verdict({ verdict, prUrl }) {
       {verdict.reasons?.length > 0 && (
         <ul className="reasons">
           {verdict.reasons.map((r, i) => (
-            <li key={i}>{r}</li>
+            <li key={i}>{friendlyReason(r)}</li>
           ))}
         </ul>
       )}
@@ -522,8 +550,18 @@ function Verdict({ verdict, prUrl }) {
   );
 }
 
-export function Outcome({ job, verdict }) {
+export function Outcome({ job, verdict, pending = false }) {
   if (verdict) return <Verdict verdict={verdict} prUrl={job.prUrl} />;
+  // The verdict comes from a status request that lands after the stream says the
+  // run is over. Holding its place stops the page jumping when it arrives.
+  if (pending) {
+    return (
+      <div className="outcome pending" role="status" aria-live="polite">
+        <h2>Reading the verdict…</h2>
+        <p>Classifying the run from its stored record.</p>
+      </div>
+    );
+  }
   if (job.prUrl) {
     return (
       <div className="outcome pr">
@@ -575,7 +613,7 @@ export function Outcome({ job, verdict }) {
     return (
       <div className="outcome aborted">
         <h2>Aborted</h2>
-        <p>{job.stopReason || "The job stopped before it could do any work."}</p>
+        <p>{friendlyReason(job.stopReason) || "The job stopped before it could do any work."}</p>
       </div>
     );
   }
@@ -709,6 +747,24 @@ export function StrengthPanel({ strength, running }) {
         </ul>
       )}
       <p className="hint" style={{ marginTop: 10 }}>{strength.disclaimer}</p>
+    </div>
+  );
+}
+
+/* The two post-integration checks share one panel. Separately they were two
+   full-height empty cards for most of a run; together they read as one question,
+   "how far can this be trusted", answered two ways. */
+export function ChecksPanel({ impact, strength, running }) {
+  return (
+    <div className="checks">
+      <section aria-labelledby="chk-impact">
+        <h3 id="chk-impact">Blast radius</h3>
+        <ImpactPanel impact={impact} running={running} />
+      </section>
+      <section aria-labelledby="chk-strength">
+        <h3 id="chk-strength">Test strength</h3>
+        <StrengthPanel strength={strength} running={running} />
+      </section>
     </div>
   );
 }

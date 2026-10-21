@@ -14,6 +14,38 @@
    these resets cannot leak into that dense, carefully tuned dark UI.
    =========================================================================== */
 
+/* Self-hosted latin subsets (SIL Open Font License 1.1, see fonts/README.md).
+   The page used to wait on fonts.googleapis.com and fonts.gstatic.com, two extra
+   origins on the critical path, and then re-flowed when the face arrived.
+   `Inter Fallback` is Arial rescaled to Inter's metrics, so the text that shows
+   first occupies the same space as the text that replaces it. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial");
+  size-adjust: 107.4%;
+  ascent-override: 90.2%;
+  descent-override: 22.48%;
+  line-gap-override: 0%;
+}
+
 :root {
   --bg: #0b0d10;
   --bg-2: #0e1116;
@@ -35,7 +67,7 @@
   --radius: 12px;
   --radius-lg: 16px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: "Inter", "Inter Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* 4px-based rhythm. */
   --s1: 4px;
@@ -167,16 +199,29 @@ code,
 
 /* --------------------------------------------------------------- backdrop -- */
 
-/* Fixed behind the whole page, not just the hero: the lattice reads as one
-   continuous space the content floats in, rather than a panel that ends. */
+/* Confined to the hero. Fixed behind the whole page it ran under every section,
+   which put bright blobs behind body copy (poor contrast on every screen) and
+   forced the nav's backdrop-filter to re-blur an animating canvas each frame.
+   Held to the first screen it is the signature, and the rest of the page is
+   a calm surface the argument can be read on. */
 .backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   z-index: 0;
   pointer-events: none;
   display: block;
+}
+
+/* Dissolve the lattice into the page instead of ending on a hard edge. */
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 38%;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
 }
 
 .nav,
@@ -440,6 +485,7 @@ main,
 
 .hero-inner {
   position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: var(--s8);
@@ -476,12 +522,15 @@ main,
 .hero-note {
   margin-top: var(--s4);
   font-size: 13px;
-  color: var(--dim);
+  /* Sits on the lattice, so --dim was too faint to read there. */
+  color: var(--muted);
 }
 
 /* ------------------------------------------------------------- trust bar -- */
 
 .trustbar {
+  position: relative;
+  z-index: 1;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--bg-2);
@@ -492,7 +541,9 @@ main,
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s5) var(--s7);
-  padding: var(--s5) 0;
+  /* Vertical only: the `padding` shorthand wiped .wrap's side gutter and pulled
+     this row 24px left of the grid every other section sits on. */
+  padding-block: var(--s5);
 }
 
 .trust-item {
@@ -696,47 +747,126 @@ main,
   background: var(--line);
   overflow: hidden;
 }
+/* The race is a pure CSS timeline: transform and opacity only, no JavaScript, no
+   React renders, and it runs on the compositor even while the main thread is
+   busy hydrating. One 9s cycle: candidates race, the first to go green wins,
+   the rest are cancelled where they stand, and the whole thing resets.
+   Simulated for illustration, as the caption says. */
 .fork-fill {
+  display: block;
+  width: 100%;
   height: 100%;
   border-radius: 999px;
   background: var(--blue);
-  transition: width 0.4s linear, background 0.3s var(--ease);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 
 .fork-row .verdict {
+  display: grid;
   font-size: 12px;
   min-width: 74px;
   text-align: right;
 }
-
-.fork-row.is-pass {
-  border-color: rgba(63, 185, 80, 0.5);
-}
-.fork-row.is-pass .fork-fill {
-  background: var(--green);
-}
-.fork-row.is-pass .verdict {
-  color: var(--green);
+/* The verdict words are stacked in one grid cell and cross-faded, so the row
+   never changes width and nothing around it shifts. */
+.fork-row .verdict > span {
+  grid-area: 1 / 1;
+  opacity: 0;
 }
 
-.fork-row.is-fail .fork-fill {
-  background: var(--red);
+.fork-row {
+  --cycle: 9s;
+  animation: row-reset var(--cycle) linear infinite;
 }
-.fork-row.is-fail .verdict {
-  color: var(--red);
+.fork-row .fork-fill,
+.fork-row .verdict > span {
+  animation-duration: var(--cycle);
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
 }
-/* A cancelled loser is dimmed, never removed. Failures are evidence. */
-.fork-row.is-cancelled {
-  opacity: 0.38;
+
+/* Winner: finishes at 24% of the cycle. */
+.fork-row--win {
+  animation-name: row-reset, row-win-border;
 }
-.fork-row.is-cancelled .verdict {
-  color: var(--dim);
+.fork-row--win .fork-fill {
+  animation-name: fill-win;
+}
+.verdict .v-run { animation-name: show-until-24; }
+.fork-row--win .verdict .v-end { animation-name: show-from-24; color: var(--green); }
+
+/* Losers: still running when the winner lands, then cancelled and dimmed. */
+.fork-row--lose {
+  animation-name: row-reset, row-dim;
+}
+.fork-row--lose-a .fork-fill { animation-name: fill-lose-a; }
+.fork-row--lose-b .fork-fill { animation-name: fill-lose-b; }
+.fork-row--lose .verdict .v-end { animation-name: show-from-24; color: var(--dim); }
+
+/* Repair only runs when every first-attempt candidate fails, so here it waits. */
+.fork-row--standby { opacity: 0.5; animation: none; }
+.fork-row--standby .verdict > span { animation: none; }
+.fork-row--standby .verdict .v-run { opacity: 1; color: var(--dim); }
+
+@keyframes fill-win {
+  0% { transform: scaleX(0); background: var(--blue); }
+  24% { transform: scaleX(1); background: var(--blue); }
+  25%, 100% { transform: scaleX(1); background: var(--green); }
+}
+@keyframes fill-lose-a {
+  0%, 100% { transform: scaleX(0); }
+  24%, 92% { transform: scaleX(0.86); }
+}
+@keyframes fill-lose-b {
+  0%, 100% { transform: scaleX(0); }
+  24%, 92% { transform: scaleX(0.94); }
+}
+@keyframes show-until-24 {
+  0%, 23% { opacity: 1; }
+  24%, 100% { opacity: 0; }
+}
+@keyframes show-from-24 {
+  0%, 23% { opacity: 0; }
+  24%, 94% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes row-dim {
+  0%, 23% { opacity: 1; }
+  27%, 92% { opacity: 0.38; }
+  100% { opacity: 1; }
+}
+@keyframes row-win-border {
+  0%, 23% { border-color: var(--line); }
+  27%, 94% { border-color: rgba(63, 185, 80, 0.5); }
+  100% { border-color: var(--line); }
+}
+@keyframes row-reset {
+  0%, 94% { opacity: 1; }
+  97% { opacity: 0.001; }
+  100% { opacity: 1; }
+}
+
+/* Reduced motion gets the finished state, not a frozen first frame. */
+@media (prefers-reduced-motion: reduce) {
+  .fork-row,
+  .fork-row .fork-fill,
+  .fork-row .verdict > span { animation: none !important; }
+  .fork-row--win .fork-fill { transform: scaleX(1); background: var(--green); }
+  .fork-row--lose-a .fork-fill { transform: scaleX(0.86); }
+  .fork-row--lose-b .fork-fill { transform: scaleX(0.94); }
+  .fork-row--win { border-color: rgba(63, 185, 80, 0.5); }
+  .fork-row--lose { opacity: 0.38; }
+  .fork-row .verdict .v-run { opacity: 0; }
+  .fork-row .verdict .v-end { opacity: 1; }
+  .fork-row--standby .verdict .v-run { opacity: 1; }
 }
 
 .forkviz--compact .fork-row {
-  grid-template-columns: 16px 78px 1fr auto;
+  grid-template-columns: 16px 92px 1fr auto;
   padding: 7px 10px;
   font-size: 12px;
+  white-space: nowrap;
 }
 .forkviz--compact .verdict {
   min-width: 64px;
@@ -786,6 +916,9 @@ main,
 }
 
 .bench-fill {
+  /* A span is inline, and an inline box ignores width and height: every solid
+     bar rendered empty. Only the hatched bar, which set display inline, drew. */
+  display: block;
   height: 100%;
   border-radius: 6px 0 0 6px;
   background: linear-gradient(90deg, #26405c, var(--blue));
@@ -1034,152 +1167,109 @@ table.compare td:nth-child(n + 2) {
   color: var(--muted);
 }
 
-/* ------------------------------------------------------------- pricing -- */
+/* ------------------------------------------------------------ outcomes -- */
 
-.plans {
+.outcomes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--s4);
   margin-top: var(--s7);
-  align-items: stretch;
 }
 
-.plan {
+.outcome-card {
+  --tone: var(--dim);
   display: flex;
   flex-direction: column;
-  position: relative;
+  gap: var(--s3);
+  padding: var(--s5);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--tone);
+  border-radius: var(--radius);
+}
+.outcome-card--verified { --tone: var(--green); }
+.outcome-card--unverified { --tone: var(--amber); }
+.outcome-card--failed { --tone: var(--red); }
+.outcome-card--error { --tone: var(--violet); }
+
+.outcome-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 17px;
+  color: var(--text);
+}
+.outcome-card h3 .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+.outcome-card p {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.outcome-card .offered {
+  margin-top: auto;
+  min-height: 88px; /* the four separators line up whatever the text length */
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.outcome-card .offered b {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tone);
+}
+
+.bundle {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--s7);
+  align-items: center;
+  margin-top: var(--s5);
+  padding: var(--s6);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  overflow: hidden;
 }
-
-.plan--featured {
-  border-color: rgba(63, 185, 80, 0.45);
+.bundle h3 {
+  font-size: 20px;
 }
-
-/* Adapted from the 21st.dev "Pricing" component's BorderTrail: a light travels
-   the card's perimeter using offset-path, done here in plain CSS instead of
-   framer-motion so the landing bundle stays dependency-free. */
-.plan--featured::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--trail-angle, 0deg),
-    transparent 0deg,
-    rgba(63, 185, 80, 0.85) 26deg,
-    transparent 64deg
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: trail 5s linear infinite;
+.bundle p {
+  margin: var(--s3) 0 var(--s5);
+  color: var(--muted);
+  max-width: 52ch;
 }
-
-@property --trail-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes trail {
-  to {
-    --trail-angle: 360deg;
-  }
-}
-
-.plan-head {
-  padding: var(--s5);
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-2);
-}
-
-.plan-name {
-  font-size: 17px;
-  font-weight: 600;
-}
-.plan-info {
-  color: var(--dim);
-  font-size: 13.5px;
-  margin-top: 3px;
-  min-height: 38px;
-}
-
-.plan-price {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-top: var(--s4);
-}
-.plan-price .amount {
-  font-family: var(--mono);
-  font-size: 34px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-}
-.plan-price .per {
-  color: var(--dim);
-  font-size: 13.5px;
-}
-
-.plan-tag {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: var(--green);
-  color: #052e11;
-  font-weight: 700;
-}
-
-.plan-features {
+.bundle ul {
   list-style: none;
   margin: 0;
-  padding: var(--s5);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  flex: 1;
-}
-
-.plan-features li {
-  display: flex;
+  padding: 0;
+  display: grid;
   gap: 10px;
-  font-size: 14px;
-  color: var(--muted);
-  align-items: flex-start;
 }
-.plan-features svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  margin-top: 2px;
-  color: var(--green);
+.bundle li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 14.5px;
+  color: var(--text);
 }
-
-.plan-foot {
-  padding: var(--s4) var(--s5) var(--s5);
-  border-top: 1px solid var(--line);
-}
-.plan-foot .btn {
-  width: 100%;
-}
-
-.price-footnote {
-  margin-top: var(--s5);
-  text-align: center;
-  font-size: 13px;
-  color: var(--dim);
+.bundle li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid var(--green);
+  border-bottom: 2px solid var(--green);
+  transform: rotate(-45deg) translateY(-50%);
 }
 
 /* ----------------------------------------------------------------- faq -- */
@@ -1342,11 +1432,12 @@ table.compare td:nth-child(n + 2) {
   .bento .span-2 {
     grid-column: span 2;
   }
-  .plans {
+  .outcomes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bundle {
     grid-template-columns: 1fr;
-    max-width: 480px;
-    margin-left: auto;
-    margin-right: auto;
+    gap: var(--s5);
   }
 }
 
@@ -1376,6 +1467,12 @@ table.compare td:nth-child(n + 2) {
   .bento .span-2 {
     grid-template-columns: 1fr;
     grid-column: auto;
+  }
+  .outcomes {
+    grid-template-columns: 1fr;
+  }
+  .bundle {
+    padding: var(--s5);
   }
   .bench-row {
     grid-template-columns: 1fr;

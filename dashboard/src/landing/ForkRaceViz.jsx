@@ -1,76 +1,29 @@
-import { useEffect, useState } from "react";
 import { GitBranch } from "./icons";
 
 /**
- * A looping, self-driving recreation of the thing that actually happens
- * inside a Principal job: N candidates fork from one green checkpoint and
- * race to a passing test run. First green wins; everything still running at
- * that instant is cancelled, not deleted — a losing candidate is dimmed in
- * place, because a discarded attempt is evidence, never noise.
+ * A looping recreation of the thing that actually happens inside a Principal
+ * job: N candidates fork from one green checkpoint and race to a passing test
+ * run. First green wins; everything still running at that instant is
+ * cancelled, not deleted, and a cancelled candidate is dimmed in place because
+ * a discarded attempt is evidence, never noise.
  *
- * This is illustrative motion graphics, not a replay of a real job — the
- * dashboard at /app renders the same shapes from real SSE events. Making
- * that distinction legible matters on a page whose whole argument is "trust
- * the evidence, not the pitch," so the caption says so explicitly.
+ * It is static markup. The timeline lives in CSS (landing.css, "fork race"):
+ * transform and opacity keyframes, so it costs no JavaScript, no React renders
+ * and nothing on the main thread. It used to be a setInterval re-rendering four
+ * rows every 60ms for as long as the page was open.
+ *
+ * Illustrative, not a replay of a real job. The console at /app renders the same
+ * shapes from real Server-Sent Events, and the caption says so, which matters on
+ * a page whose argument is "trust the evidence, not the pitch."
  */
-const TEMPLATE = [
-  { id: "c1", label: "candidate 1", tag: "Nano · t0.0", min: 2400, max: 3800 },
-  { id: "c2", label: "candidate 2", tag: "Nano · t0.4", min: 1900, max: 3200 },
-  { id: "c3", label: "candidate 3", tag: "Nano · t0.8", min: 2200, max: 3600 },
-  { id: "c4", label: "repair", tag: "Super · retry", min: 3400, max: 4400 },
+const ROWS = [
+  { id: "c1", label: "candidate 1", cls: "fork-row--lose fork-row--lose-a", end: "cancelled" },
+  { id: "c2", label: "candidate 2", cls: "fork-row--win", end: "✓ green — wins" },
+  { id: "c3", label: "candidate 3", cls: "fork-row--lose fork-row--lose-b", end: "cancelled" },
+  { id: "c4", label: "repair", cls: "fork-row--standby", end: "" },
 ];
 
-const HOLD_MS = 2400;
-const TICK_MS = 60;
-
-function freshCycle() {
-  return TEMPLATE.map((c) => ({
-    ...c,
-    ms: c.min + Math.random() * (c.max - c.min),
-    progress: 0,
-    verdict: "running",
-  }));
-}
-
 export function ForkRaceViz({ compact = false }) {
-  const [rows, setRows] = useState(freshCycle);
-
-  useEffect(() => {
-    let holding = false;
-    let holdStart = 0;
-
-    const id = setInterval(() => {
-      const now = performance.now();
-
-      setRows((prev) => {
-        if (holding) {
-          return now - holdStart >= HOLD_MS ? freshCycle() : prev;
-        }
-        if (prev.some((r) => r.verdict === "pass")) return prev;
-
-        // Advance every still-running candidate, then find whichever one (if
-        // any) crossed the line this tick — array order breaks ties, which
-        // only matters on the rare tick where two candidates finish together.
-        const advanced = prev.map((r) =>
-          r.verdict === "running"
-            ? { ...r, progress: Math.min(100, r.progress + (100 * TICK_MS) / r.ms) }
-            : r
-        );
-        const winner = advanced.find((r) => r.verdict === "running" && r.progress >= 100);
-        if (!winner) return advanced;
-
-        holding = true;
-        holdStart = now;
-        return advanced.map((r) => {
-          if (r.id === winner.id) return { ...r, progress: 100, verdict: "pass" };
-          return r.verdict === "running" ? { ...r, verdict: "cancelled" } : r;
-        });
-      });
-    }, TICK_MS);
-
-    return () => clearInterval(id);
-  }, []);
-
   return (
     <div className={`forkviz${compact ? " forkviz--compact" : ""}`}>
       <div className="fork-baseline">
@@ -78,24 +31,16 @@ export function ForkRaceViz({ compact = false }) {
         <span>C0 — green baseline checkpoint</span>
       </div>
       <div className="fork-rows" role="list" aria-label="Simulated candidate race">
-        {rows.map((r) => (
-          <div
-            key={r.id}
-            role="listitem"
-            className={`fork-row${r.verdict === "pass" ? " is-pass" : ""}${
-              r.verdict === "fail" ? " is-fail" : ""
-            }${r.verdict === "cancelled" ? " is-cancelled" : ""}`}
-          >
-            <span className="branch">└─</span>
+        {ROWS.map((r) => (
+          <div key={r.id} role="listitem" className={`fork-row ${r.cls}`}>
+            <span className="branch" aria-hidden="true">└─</span>
             <span>{r.label}</span>
-            <span className="fork-track">
-              <span className="fork-fill" style={{ width: `${r.progress}%` }} />
+            <span className="fork-track" aria-hidden="true">
+              <span className="fork-fill" />
             </span>
             <span className="verdict">
-              {r.verdict === "running" && "running…"}
-              {r.verdict === "pass" && "✓ green — wins"}
-              {r.verdict === "cancelled" && "cancelled"}
-              {r.verdict === "fail" && "✗ failed"}
+              <span className="v-run">{r.id === "c4" ? "standby" : "running…"}</span>
+              {r.end && <span className="v-end">{r.end}</span>}
             </span>
           </div>
         ))}
@@ -104,7 +49,8 @@ export function ForkRaceViz({ compact = false }) {
         <p className="forkviz-caption">
           Simulated for illustration — the same shapes render from real Server-Sent
           Events in the live console. Losers are cancelled, not deleted: every
-          candidate's diff and test log stays inspectable.
+          candidate's diff and test log stays inspectable. The repair attempt only
+          runs when all three first candidates fail.
         </p>
       )}
     </div>

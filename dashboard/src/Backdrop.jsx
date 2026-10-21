@@ -47,7 +47,7 @@ uniform vec3  uFrom;
 uniform vec3  uTo;
 uniform float uAlpha;
 
-const int LAYERS = 14;
+const int LAYERS = 10;
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -122,6 +122,12 @@ function hexToRgb(hex) {
   return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
 }
 
+// Cost control, measured against a field of diffuse blobs where none of this is
+// visible: half the linear resolution is a quarter of the fragments, and the
+// motion is a slow drift that reads identically at 30fps.
+const RENDER_SCALE = 0.5;
+const FRAME_MS = 1000 / 30;
+
 export function Backdrop({ from = "#a371f7", to = "#3fb950", alpha = 0.5 }) {
   const canvasRef = useRef(null);
   // Colours are read through a ref so a verdict change re-tints the running
@@ -178,9 +184,9 @@ export function Backdrop({ from = "#a371f7", to = "#3fb950", alpha = 0.5 }) {
     if (!build()) return undefined;
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-      const w = Math.floor(canvas.clientWidth * dpr);
-      const h = Math.floor(canvas.clientHeight * dpr);
+      const scale = Math.min(window.devicePixelRatio || 1, 1) * RENDER_SCALE;
+      const w = Math.max(1, Math.floor(canvas.clientWidth * scale));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * scale));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -202,10 +208,13 @@ export function Backdrop({ from = "#a371f7", to = "#3fb950", alpha = 0.5 }) {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
-    const loop = () => {
+    let last = 0;
+    const loop = (now) => {
       if (stopped) return;
-      draw((performance.now() - start) / 1000);
       raf = requestAnimationFrame(loop);
+      if (now - last < FRAME_MS) return;
+      last = now;
+      draw((performance.now() - start) / 1000);
     };
 
     const stop = () => {
@@ -232,7 +241,17 @@ export function Backdrop({ from = "#a371f7", to = "#3fb950", alpha = 0.5 }) {
       raf = requestAnimationFrame(loop);
     };
 
-    const onVisibility = () => (document.hidden ? stop() : go());
+    // Off-screen means no frames at all: once the hero scrolls away the canvas
+    // costs nothing, and it picks up again the moment it returns.
+    let onScreen = true;
+    const io = new IntersectionObserver(([entry]) => {
+      onScreen = entry.isIntersecting;
+      if (!onScreen) stop();
+      else if (!document.hidden && !reduced.matches) go();
+    });
+    io.observe(canvas);
+
+    const onVisibility = () => (document.hidden || !onScreen ? stop() : go());
 
     // A WebGL context can be taken away at any time — a GPU driver reset, too
     // many WebGL surfaces alive at once, a laptop switching GPUs. Without
@@ -259,6 +278,7 @@ export function Backdrop({ from = "#a371f7", to = "#3fb950", alpha = 0.5 }) {
 
     return () => {
       stop();
+      io.disconnect();
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
       document.removeEventListener("visibilitychange", onVisibility);

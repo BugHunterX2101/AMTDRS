@@ -12,7 +12,7 @@ const TRUST = [
 export function Hero() {
   return (
     <header className="hero" id="top">
-      <Backdrop from="#a371f7" to="#3fb950" alpha={0.55} />
+      <Backdrop from="#a371f7" to="#3fb950" alpha={0.4} />
       <div className="hero-glow" aria-hidden="true" />
       <div className="hero-grid" aria-hidden="true" />
       <div className="wrap hero-inner">
@@ -49,10 +49,9 @@ export function Hero() {
             </a>
           </div>
           <p className="hero-note">
-            The hosted console takes a bundled fixture repo through a real green
-            baseline, a real code graph and a real blast radius with zero
-            credentials — nothing to sign up for. Patch generation needs your own
-            inference key. Free-tier host, first load may take 30–60s to wake up.
+            No sign-up: the hosted console runs a bundled repo through a real green
+            baseline, code graph and blast radius. Generating patches needs your own
+            inference key. Free-tier host, so the first load can take 30–60s.
           </p>
         </div>
 

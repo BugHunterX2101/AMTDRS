@@ -173,9 +173,27 @@ function reduce(s, ev) {
   }
 }
 
+const TERMINAL = new Set(["Done", "NoPR", "Aborted", "NoSafetyNet"]);
+
+const isTerminalEvent = (ev) =>
+  ev.kind === "job.stopped" || (ev.kind === "job.state" && TERMINAL.has(ev.payload?.state));
+
+// How long events are held before they are applied. A job that replays its log
+// on connect, or a wave of candidates finishing together, delivers dozens of
+// events inside a few milliseconds; applying each one as its own state update
+// re-rendered the entire console per event. One flush per ~60ms is below what a
+// person can perceive as delay and collapses a burst into a single render.
+const FLUSH_MS = 60;
+
+// After a terminal state, keep the stream open briefly so trailing events
+// (a PR link, the last log rows) still land, then close it. Left open, the
+// browser reconnects every few seconds to a run that will never speak again.
+const DRAIN_MS = 1500;
+
 export function useJobStream(jobId) {
   const [job, setJob] = useState(EMPTY);
   const [connected, setConnected] = useState(false);
+  const [finished, setFinished] = useState(false);
   const sourceRef = useRef(null);
 
   const reset = useCallback(() => setJob(EMPTY), []);
@@ -183,11 +201,37 @@ export function useJobStream(jobId) {
   useEffect(() => {
     if (!jobId) return undefined;
     setJob(EMPTY);
+    setFinished(false);
 
     const es = new EventSource(`/jobs/${jobId}/events`);
     sourceRef.current = es;
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
+
+    const buffer = [];
+    let flushTimer = 0;
+    let closeTimer = 0;
+
+    const flush = () => {
+      flushTimer = 0;
+      const batch = buffer.splice(0);
+      if (batch.length === 0) return;
+      setJob((s) => {
+        let next = s;
+        for (const ev of batch) next = reduce(next, ev);
+        // Bounded: a long run emits thousands of events and the raw log is a
+        // debugging aid, not a data store. Newest first.
+        const events = [...batch.slice().reverse(), ...next.events].slice(0, 400);
+        return { ...next, events };
+      });
+      if (!closeTimer && batch.some(isTerminalEvent)) {
+        closeTimer = setTimeout(() => {
+          es.close();
+          setConnected(false);
+          setFinished(true);
+        }, DRAIN_MS);
+      }
+    };
 
     // Named SSE events do not reach onmessage, and the kinds are open-ended, so
     // every listener goes through one handler registered per kind we know about
@@ -199,14 +243,8 @@ export function useJobStream(jobId) {
       } catch {
         payload = { raw: e.data };
       }
-      const ev = { seq: Number(e.lastEventId || 0), kind, payload };
-      setJob((s) => {
-        const next = reduce(s, ev);
-        // Bounded: a long run emits thousands of events and the raw log is a
-        // debugging aid, not a data store.
-        const events = [ev, ...next.events].slice(0, 400);
-        return { ...next, events };
-      });
+      buffer.push({ seq: Number(e.lastEventId || 0), kind, payload });
+      if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
     };
 
     const kinds = [
@@ -222,11 +260,13 @@ export function useJobStream(jobId) {
     for (const k of kinds) es.addEventListener(k, handle(k));
 
     return () => {
+      clearTimeout(flushTimer);
+      clearTimeout(closeTimer);
       es.close();
       sourceRef.current = null;
       setConnected(false);
     };
   }, [jobId]);
 
-  return { job, connected, reset };
+  return { job, connected, finished, reset };
 }

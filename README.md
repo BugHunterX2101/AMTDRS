@@ -13,7 +13,7 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 | **Repository** | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) |
 | **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — landing page at `/`, operator console at `/app/`; baseline, code graph and blast radius run with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
 | **Demo video** | *(3 minutes — see [`docs/DEMO_VIDEO.md`](docs/DEMO_VIDEO.md) for the shot list)* |
-| **Verification** | `pytest -q` → 113 passed · `ruff check` → clean · `lint-imports` → 3/3 contracts held |
+| **Verification** | `pytest -q` → 214 passed · `ruff check` → clean · `lint-imports` → 3/3 contracts held |
 
 ---
 
@@ -393,6 +393,7 @@ Principal does not guess:
 - At boot it runs a **3×3 capability probe** — each of the three models against each of the three output protocols (JSON schema / tool calls / fenced text).
 - Each model is **pinned to the protocol it actually demonstrated**, and the results print as a table at startup.
 - `PRINCIPAL_FORCE_PROTOCOL` pins one protocol for everything if you need determinism.
+- `PRINCIPAL_REQUIRE_LIVE=1` makes startup fail unless Token Factory inference and Sandboxes both verify, so a live deployment cannot silently fall back to the credential-less demo. `/healthz` reports `inference_verified`, `sandbox_verified` and `live`.
 
 ```
 model                                    schema  tools  text   chosen
@@ -537,7 +538,7 @@ Set a key and the same command runs through to `Done` or `NoPR`.
 And the tests:
 
 ```bash
-make test          # or: pytest — 113 tests, unit + integration
+make test          # or: pytest — 214 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 

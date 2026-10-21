@@ -237,6 +237,29 @@ class ModelClient:
             )
             return completion, downgraded_to, (abandoned_prompt, abandoned_completion)
 
+    def _record_rate_headroom(self, headers: Any) -> None:
+        # Widened past AttributeError deliberately: a provider that sends a
+        # non-integer value here would otherwise turn a completed, already-paid-
+        # for call into an exception on the success path. Headroom is telemetry;
+        # it is never worth failing a good response over.
+        try:
+            rr = headers.get("x-ratelimit-remaining-requests")
+            rt = headers.get("x-ratelimit-remaining-tokens")
+            if rr is not None:
+                self.rate_headroom.remaining_requests = int(rr)
+            if rt is not None:
+                self.rate_headroom.remaining_tokens = int(rt)
+        except (AttributeError, TypeError, ValueError):
+            return
+
+    def counters(self) -> dict[str, int]:
+        return {
+            "reasoning_fallback_count": self.reasoning_fallback_count,
+            "protocol_downgrades": self.protocol_downgrades,
+            "rate_limit_backoffs": self.rate_limit_backoffs,
+            "budget_refusals": self.budget_refusals,
+        }
+
     async def _backoff(self, attempt: int, base: float = 1.0, retry_after: float | None = None) -> None:
         """Exponential with jitter, unless the server said how long to wait.
 
@@ -262,26 +285,3 @@ def _retry_after(exc: Exception) -> float | None:
         return float(raw) if raw is not None else None
     except (AttributeError, TypeError, ValueError):
         return None
-
-    def _record_rate_headroom(self, headers: Any) -> None:
-        # Widened past AttributeError deliberately: a provider that sends a
-        # non-integer value here would otherwise turn a completed, already-paid-
-        # for call into an exception on the success path. Headroom is telemetry;
-        # it is never worth failing a good response over.
-        try:
-            rr = headers.get("x-ratelimit-remaining-requests")
-            rt = headers.get("x-ratelimit-remaining-tokens")
-            if rr is not None:
-                self.rate_headroom.remaining_requests = int(rr)
-            if rt is not None:
-                self.rate_headroom.remaining_tokens = int(rt)
-        except (AttributeError, TypeError, ValueError):
-            return
-
-    def counters(self) -> dict[str, int]:
-        return {
-            "reasoning_fallback_count": self.reasoning_fallback_count,
-            "protocol_downgrades": self.protocol_downgrades,
-            "rate_limit_backoffs": self.rate_limit_backoffs,
-            "budget_refusals": self.budget_refusals,
-        }

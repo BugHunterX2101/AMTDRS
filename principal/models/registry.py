@@ -21,6 +21,12 @@ class ModelRegistry:
     resolved: dict[Tier, str]
     available: list[str]
 
+    @property
+    def verified(self) -> bool:
+        """True only when list-models actually answered. An empty `available`
+        means the ids were passed through unchecked."""
+        return bool(self.available)
+
 
 async def resolve_models(
     base_url: str, api_key: str, wanted: dict[Tier, str], *, timeout: float = 15.0
@@ -31,6 +37,12 @@ async def resolve_models(
             resp.raise_for_status()
             data = resp.json()
             available = sorted({row.get("id", "") for row in data.get("data", []) if row.get("id")})
+        except httpx.HTTPStatusError as exc:
+            # A rejected key is not "the endpoint is unreachable": passing the ids
+            # through would let every later call fail with the same 401 mid-job.
+            if exc.response.status_code in (401, 403):
+                raise
+            available = []
         except (httpx.HTTPError, ValueError):
             # The endpoint being unreachable at boot is itself informative, but it
             # should not stop local development against recorded fixtures.

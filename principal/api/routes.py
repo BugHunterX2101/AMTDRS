@@ -36,11 +36,19 @@ async def healthz(request: Request):
     running the hosted demo wants to know."""
     app = _state(request)
     settings = app.settings
+    backends = getattr(app, "backends", {})
+    inference_verified = bool(backends.get("inference_verified"))
+    sandbox_verified = bool(backends.get("sandbox_verified"))
     return {
         "status": "ok",
         "sandbox": type(app.sandbox).__name__,
         "inference_configured": bool(settings.nebius_api_key),
         "sandboxes_configured": bool(settings.nebius_api_key and settings.nebius_project_id),
+        # "Configured" only says a credential is present. "Verified" says a call
+        # to Token Factory / Sandboxes actually succeeded at startup.
+        "inference_verified": inference_verified,
+        "sandbox_verified": sandbox_verified,
+        "live": inference_verified and sandbox_verified,
         "publishing_configured": bool(settings.github_token and settings.principal_fork_repo),
         "models": {
             "nano": settings.principal_model_nano,

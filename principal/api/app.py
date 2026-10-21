@@ -16,6 +16,7 @@ cost of discovering them is highest.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,7 +30,7 @@ from principal.api.routes import router
 from principal.config import Protocol, Settings, Tier, get_settings
 from principal.db.events import EventLog
 from principal.db.store import Store
-from principal.errors import Code, PrincipalError
+from principal.errors import Code, ConfigMissing, PrincipalError
 from principal.models.cache import DiskCache
 from principal.models.client import ModelClient
 from principal.sandbox.client import SandboxClient
@@ -76,6 +77,14 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
         Tier.NANO: settings.principal_model_nano, Tier.SUPER: settings.principal_model_super,
         Tier.ULTRA: settings.principal_model_ultra,
     }
+    backends = {"inference_verified": False, "sandbox_verified": False}
+    require_live = settings.principal_require_live
+    if require_live:
+        if not settings.nebius_api_key:
+            raise ConfigMissing("NEBIUS_API_KEY")
+        if not settings.nebius_project_id:
+            raise ConfigMissing("NEBIUS_PROJECT_ID")
+
     if settings.nebius_api_key:
         try:
             from principal.models.registry import resolve_models
@@ -83,7 +92,15 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
             registry = await resolve_models(settings.principal_inference_base, settings.nebius_api_key,
                                              model_ids)
             model_ids = registry.resolved
+            backends["inference_verified"] = registry.verified
+            if require_live and not registry.verified:
+                raise PrincipalError(
+                    Code.MODEL_ID_UNKNOWN,
+                    "PRINCIPAL_REQUIRE_LIVE is set but Token Factory list-models did not answer",
+                )
         except Exception as exc:  # noqa: BLE001
+            if require_live:
+                raise
             logger.warning("model registry check failed, using configured ids unresolved: %s", exc)
 
     cache = DiskCache(settings.principal_cache_dir, enabled=settings.principal_model_cache)
@@ -100,6 +117,16 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
             api_key=settings.sandbox_key, project_id=settings.nebius_project_id,
             base_url=settings.principal_sandbox_base, max_inflight=settings.max_inflight_ops,
         )
+        try:
+            # One trivial disposable run, so a missing entitlement (a bare 403)
+            # surfaces here rather than halfway through a job.
+            await asyncio.wait_for(sandbox.probe(), timeout=120)
+            backends["sandbox_verified"] = True
+            logger.info("sandbox probe ok")
+        except Exception as exc:  # noqa: BLE001
+            if require_live:
+                raise
+            logger.warning("sandbox probe failed, jobs will fail until this is fixed: %s", exc)
     else:
         from principal.sandbox.fake import FakeSandbox
 
@@ -111,6 +138,7 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
     app.state.events = events
     app.state.sandbox = sandbox
     app.state.models = models
+    app.state.backends = backends
     app.state.background_tasks = set()
 
 

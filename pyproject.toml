@@ -50,6 +50,9 @@ include = ["principal*", "mcp_code_graph*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# tests/fixtures/mini_repo is the repository Principal operates on, with its own
+# tests that only import under its own root. Collecting them here aborts the run.
+norecursedirs = ["fixtures"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]

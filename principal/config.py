@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     principal_force_protocol: str = ""
     principal_model_cache: bool = True
 
+    # The hackathon requires a runtime call to Token Factory and NVIDIA models. The
+    # credential-less demo path (FakeSandbox, no inference) is deliberate for the
+    # hosted free tier, but a deployment that is *supposed* to be live must not be
+    # able to degrade into it quietly. With this on, startup refuses to proceed
+    # unless inference and sandboxes both verify.
+    principal_require_live: bool = False
+
     # Storage
     principal_db: Path = Field(default=ROOT / "principal.db")
     principal_runs_dir: Path = Field(default=ROOT / "runs")

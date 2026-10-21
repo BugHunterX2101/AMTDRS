@@ -55,7 +55,8 @@ async def open_pr(
 
         for i, diff_text in enumerate(diffs):
             patch_path = Path(tmp) / f"p{i}.diff"
-            patch_path.write_text(diff_text, encoding="utf-8")
+            # Bytes: text mode would write CRLF on Windows and `git apply` rejects it.
+            patch_path.write_bytes(diff_text.encode("utf-8"))
             await _run("git", "apply", "--whitespace=nowarn", str(patch_path), cwd=work)
 
         await _run("git", "add", "-A", cwd=work)

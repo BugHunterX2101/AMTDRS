@@ -11,6 +11,7 @@ boundary, not a mock of git or pytest: the commands it runs are real.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 import sys
@@ -37,7 +38,20 @@ def _content_hash(parent: str, script: str) -> str:
     return hashlib.sha256(f"{parent}:{script}".encode()).hexdigest()[:32]
 
 
+@dataclass(slots=True)
+class _Finished:
+    exit_code: int
+    stdout: str
+    duration_ms: int
+    timed_out: bool = False
+
+
 class FakeSandbox:
+    # Read by the orchestrator to label a run's provenance. "local" means the
+    # commands ran on this machine, not in a Token Factory microVM, and every
+    # artefact that quotes a result from here has to say so.
+    execution_mode = "local"
+
     def __init__(self, root: Path | None = None):
         import tempfile
 
@@ -46,6 +60,13 @@ class FakeSandbox:
         self._images: dict[str, FakeImage] = {}
         self._op_counter = 0
         self._cancelled: set[str] = set()
+        # Identical (parent, script) pairs are one execution, the way the real
+        # platform deduplicates them. Without this the second run executes inside
+        # the directory the first one already modified, so a patch applied twice
+        # from the same parent reports "does not apply" — a failure of the fake,
+        # blamed on the patch.
+        self._finished: dict[str, _Finished] = {}
+        self._key_locks: dict[str, asyncio.Lock] = {}
 
     async def use(self, ref: str) -> FakeImage:
         uuid = _content_hash("base", ref)
@@ -78,12 +99,47 @@ class FakeSandbox:
         parent: FakeImage = image
         result_uuid = _content_hash(parent.uuid, script)
         result_dir = self.root / result_uuid
-        if not result_dir.exists():
-            import shutil
 
-            shutil.copytree(parent.workdir, result_dir)
+        # One execution per (parent, script), however many callers ask. The lock
+        # makes concurrent identical requests — three racing candidates that
+        # happened to emit the same diff — wait for the first rather than copy
+        # into and execute inside the same directory at once.
+        lock = self._key_locks.setdefault(result_uuid, asyncio.Lock())
+        async with lock:
+            finished = self._finished.get(result_uuid)
+            if finished is None:
+                import shutil
 
+                if not result_dir.exists():
+                    shutil.copytree(parent.workdir, result_dir)
+                try:
+                    finished = await self._execute(result_dir, script, timeout_s, env)
+                except BaseException:
+                    # Cancelled mid-flight: the directory holds a half-applied
+                    # state that no completed run produced. Dropping it means the
+                    # next identical request starts from the parent again rather
+                    # than inheriting this one's debris.
+                    shutil.rmtree(result_dir, ignore_errors=True)
+                    raise
+                self._finished[result_uuid] = finished
+
+        image_uuid = result_uuid if not disposable else None
+        if not disposable:
+            self._images[result_uuid] = FakeImage(uuid=result_uuid, workdir=result_dir)
+        if tag and image_uuid:
+            self._images[tag] = self._images[result_uuid]
+
+        return RunResult(
+            image=image_uuid, exit_code=finished.exit_code, stdout=finished.stdout, stderr="",
+            duration_ms=finished.duration_ms, operation_id=op_id, timed_out=finished.timed_out,
+        )
+
+    async def _execute(
+        self, result_dir: Path, script: str, timeout_s: int, env: dict[str, str] | None,
+    ) -> _Finished:
         started = time.monotonic()
+        proc: asyncio.subprocess.Process | None = None
+        timed_out = False
         try:
             bash = _shell()
             run_env = _local_dev_env(env)
@@ -115,31 +171,35 @@ class FakeSandbox:
                 proc = await asyncio.create_subprocess_exec(
                     bash, "-c", script, cwd=str(result_dir), stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT, env=run_env,
+                    start_new_session=os.name != "nt",
                 )
             else:
                 proc = await asyncio.create_subprocess_shell(
                     script, cwd=str(result_dir), stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT, env=run_env,
+                    start_new_session=os.name != "nt",
                 )
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
             exit_code = proc.returncode or 0
         except TimeoutError:
+            await _reap(proc)
+            timed_out = True
             exit_code = 124
             out = b"(fake sandbox) timed out"
+        except asyncio.CancelledError:
+            # A losing candidate, or a cancelled job. Cancelling the awaiting
+            # task does not stop the child, and a child left running keeps
+            # writing into a directory nobody reads — the local equivalent of the
+            # abandoned sandbox operation the real client cancels explicitly.
+            await _reap(proc)
+            raise
         except Exception as exc:  # noqa: BLE001
             exit_code = 1
             out = str(exc).encode()
 
-        stdout = out.decode("utf-8", "replace")
-        image_uuid = result_uuid if not disposable else None
-        if not disposable:
-            self._images[result_uuid] = FakeImage(uuid=result_uuid, workdir=result_dir)
-        if tag and image_uuid:
-            self._images[tag] = self._images[result_uuid]
-
-        return RunResult(
-            image=image_uuid, exit_code=exit_code, stdout=stdout, stderr="",
-            duration_ms=int((time.monotonic() - started) * 1000), operation_id=op_id,
+        return _Finished(
+            exit_code=exit_code, stdout=out.decode("utf-8", "replace"),
+            duration_ms=int((time.monotonic() - started) * 1000), timed_out=timed_out,
         )
 
     async def cancel(self, operation_id: str) -> None:
@@ -148,6 +208,33 @@ class FakeSandbox:
     async def tag(self, image: Any, tag: str) -> Any:
         self._images[tag] = image
         return image
+
+
+async def _reap(proc: asyncio.subprocess.Process | None) -> None:
+    """Kill the script and everything it started, then wait for it to be gone.
+
+    Killing only the shell would leave pytest, the grandchild, running. On
+    Windows that takes `taskkill /T`; elsewhere the script was started in its own
+    session precisely so the whole process group can be signalled at once.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+    try:
+        if os.name == "nt":
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/F", "/T", "/PID", str(proc.pid),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await killer.wait()
+        else:
+            import signal
+
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+    with contextlib.suppress(TimeoutError, ProcessLookupError):
+        await asyncio.wait_for(proc.wait(), timeout=5)
 
 
 def _to_msys_path(path: Path) -> str:

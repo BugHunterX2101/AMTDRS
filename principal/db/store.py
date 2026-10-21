@@ -151,7 +151,9 @@ class Store:
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
-        self._conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+        schema_sql = SCHEMA.read_text(encoding="utf-8")
+        self._conn.executescript(schema_sql)
+        self._add_missing_columns(schema_sql)
         # Every event is its own transaction, and there are hundreds to
         # thousands of them per job. At the default `synchronous = FULL` each
         # one costs a full fsync, which dominates write latency for the whole
@@ -163,6 +165,33 @@ class Store:
         # SQLITE_BUSY rather than a short wait, and the caller sees a hard
         # failure where the correct behaviour is to queue behind the lock.
         self._conn.execute("PRAGMA busy_timeout = 5000")
+
+    def _add_missing_columns(self, schema_sql: str) -> None:
+        """Bring a database created by an older schema up to the current one.
+
+        `CREATE TABLE IF NOT EXISTS` leaves an existing table untouched, so a
+        column added to schema.sql later is simply absent from a database that
+        predates it, and the first INSERT naming it fails. Compare against a
+        throwaway database built from the current schema and `ADD COLUMN` what
+        is missing. SQLite can only add a column that is nullable or carries a
+        default; anything else is left alone rather than guessed at.
+        """
+        ref = sqlite3.connect(":memory:")
+        try:
+            ref.executescript(schema_sql)
+            tables = [r[0] for r in ref.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+            for table in tables:
+                have = {r[1] for r in self._conn.execute(f'PRAGMA table_info("{table}")')}
+                for _cid, name, ctype, notnull, default, pk in ref.execute(f'PRAGMA table_info("{table}")'):
+                    if name in have or pk or (notnull and default is None):
+                        continue
+                    ddl = f'ALTER TABLE "{table}" ADD COLUMN "{name}" {ctype}'
+                    if default is not None:
+                        ddl += f" DEFAULT {default}"
+                    self._conn.execute(ddl)
+        finally:
+            ref.close()
 
     def close(self) -> None:
         with self._lock:
@@ -357,7 +386,9 @@ class Store:
     ) -> str:
         dest = base_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
+        # Bytes, not write_text: on Windows text mode turns "\n" into "\r\n", so the
+        # file on disk would no longer match the hash recorded for it below.
+        dest.write_bytes(content.encode("utf-8"))
         aid = new_id("art-")
         self.exec(
             "INSERT INTO artifact (id, job_id, attempt_id, kind, path, sha256, created_at)"

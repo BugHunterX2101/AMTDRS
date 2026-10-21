@@ -53,6 +53,11 @@ def _b64(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+def _with_newline(diff: str) -> str:
+    """`git apply` rejects a patch whose last line is unterminated."""
+    return diff if diff.endswith("\n") else diff + "\n"
+
+
 def _emit(sentinel: str, path: str) -> str:
     return f'echo "{sentinel}"; cat {path} 2>/dev/null || echo "{{}}"; echo "{SENTINEL_END}"'
 
@@ -75,9 +80,17 @@ def baseline_script(repo_url: str, commit_sha: str, *, install_cmd: str | None =
         [
             "set -o pipefail",
             "export PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_ROOT_USER_ACTION=ignore",
-            f"git clone --filter=blob:none {shlex.quote(repo_url)} {WORKDIR} 2>&1 | tail -3",
-            f"cd {WORKDIR}",
-            f"git checkout --quiet {shlex.quote(commit_sha)}",
+            # python:*-slim ships without git. Without this the clone fails, `cd`
+            # fails, and pytest then walks the whole filesystem from / until the
+            # sandbox timeout kills it (exit -1) — a 20-minute run that reports
+            # nothing about the repository.
+            "command -v git >/dev/null || { apt-get update -qq && "
+            "apt-get install -y -qq --no-install-recommends git ca-certificates; } 2>&1 | tail -3",
+            f"git clone --filter=blob:none {shlex.quote(repo_url)} {WORKDIR} 2>&1 | tail -3"
+            " || { echo 'principal: git clone failed' >&2; exit 97; }",
+            f"cd {WORKDIR} || {{ echo 'principal: cannot enter {WORKDIR}' >&2; exit 97; }}",
+            f"git checkout --quiet {shlex.quote(commit_sha)}"
+            " || { echo 'principal: git checkout failed' >&2; exit 97; }",
             f"echo {_b64(COVERAGERC)} | base64 -d > /tmp/principal.coveragerc",
             "export COVERAGE_RCFILE=/tmp/principal.coveragerc",
             f"pip install --quiet {TEST_TOOLING} 2>&1 | tail -3",
@@ -113,7 +126,7 @@ def attempt_script(diff: str, test_nodeids: list[str]) -> str:
             "set -o pipefail",
             f"cd {WORKDIR}",
             "export COVERAGE_RCFILE=/tmp/principal.coveragerc",
-            f"echo {_b64(diff)} | base64 -d > /tmp/p.diff",
+            f"echo {_b64(_with_newline(diff))} | base64 -d > /tmp/p.diff",
             "git apply --check /tmp/p.diff || { echo 'PRINCIPAL_APPLY_FAILED'; exit 90; }",
             "git apply /tmp/p.diff",
             f"pytest -q -p no:cacheprovider {selected}"
@@ -140,7 +153,7 @@ def integration_script(diffs: list[str]) -> str:
     ]
     for i, diff in enumerate(diffs):
         lines += [
-            f"echo {_b64(diff)} | base64 -d > /tmp/p{i}.diff",
+            f"echo {_b64(_with_newline(diff))} | base64 -d > /tmp/p{i}.diff",
             f"git apply --check /tmp/p{i}.diff || {{ echo 'PRINCIPAL_CONFLICT {i}'; exit 91; }}",
             f"git apply /tmp/p{i}.diff",
         ]
@@ -201,6 +214,12 @@ def mutation_script(target_path: str, mutants: list[tuple[str, str]], test_nodei
 
     lines = [
         f"cd {WORKDIR}",
+        # Bytecode is validated by source mtime (whole seconds) and size. Two
+        # variants of one file written within the same second that happen to be
+        # the same length — `==` becoming `!=` — would otherwise run the stale
+        # compiled version, and a mutant that never took effect reads as one the
+        # tests failed to catch.
+        "export PYTHONDONTWRITEBYTECODE=1",
         "mkdir -p /tmp/mutants",
         f"cp {quoted_target} /tmp/original.py",
         ": > /tmp/mutation.txt",
@@ -213,13 +232,16 @@ def mutation_script(target_path: str, mutants: list[tuple[str, str]], test_nodei
     for mutant_id, source in mutants:
         lines.append(f"echo {_b64(source)} | base64 -d > /tmp/mutants/{mutant_id}.py")
 
+    stale_pyc = f'rm -rf "$(dirname {quoted_target})/__pycache__"'
     for mutant_id, _source in mutants:
         lines += [
             f"cp /tmp/mutants/{mutant_id}.py {quoted_target}",
+            stale_pyc,
             f"pytest -q -p no:cacheprovider -x $TIMEOUT_FLAG {selected} >/dev/null 2>&1",
             # Recorded immediately, before anything else can overwrite $?.
             f'echo "{mutant_id} $?" >> /tmp/mutation.txt',
             f"cp /tmp/original.py {quoted_target}",
+            stale_pyc,
         ]
 
     lines += [
@@ -227,6 +249,53 @@ def mutation_script(target_path: str, mutants: list[tuple[str, str]], test_nodei
         _emit(SENTINEL_MUTATION, "/tmp/mutation.txt"),
         "exit 0",
     ]
+    return "\n".join(lines)
+
+
+def audit_mutation_script(mutants: list[tuple[str, str, str]], test_nodeids: list[str]) -> str:
+    """The same loop as `mutation_script`, across several files, in ONE operation.
+
+    `mutants` is (mutant_id, repo-relative path, replacement source). The
+    characterisation gate mutates the one symbol it is vetting; the post-refactor
+    audit mutates the lines a refactor changed, which live in as many files as
+    the refactor touched. Looping inside a single operation pays the microVM
+    spin-up once rather than once per file.
+
+    Every file is restored from a pristine copy after each mutant, so mutant N
+    always runs against exactly one change from the patched tree.
+    """
+    selected = " ".join(shlex.quote(n) for n in test_nodeids) if test_nodeids else ""
+    paths = sorted({p for _m, p, _s in mutants})
+    index = {p: i for i, p in enumerate(paths)}
+
+    lines = [
+        f"cd {WORKDIR}",
+        "export PYTHONDONTWRITEBYTECODE=1",
+        "mkdir -p /tmp/mutants /tmp/orig",
+        ": > /tmp/mutation.txt",
+        'TIMEOUT_FLAG=""',
+        'python -c "import pytest_timeout" >/dev/null 2>&1 && TIMEOUT_FLAG="--timeout=60"',
+    ]
+    for p in paths:
+        lines.append(f"cp {shlex.quote(p)} /tmp/orig/{index[p]}.py")
+    for mutant_id, _p, source in mutants:
+        lines.append(f"echo {_b64(source)} | base64 -d > /tmp/mutants/{mutant_id}.py")
+
+    for mutant_id, p, _source in mutants:
+        q = shlex.quote(p)
+        stale_pyc = f'rm -rf "$(dirname {q})/__pycache__"'
+        lines += [
+            f"cp /tmp/mutants/{mutant_id}.py {q}",
+            stale_pyc,
+            f"pytest -q -p no:cacheprovider -x $TIMEOUT_FLAG {selected} >/dev/null 2>&1",
+            f'echo "{mutant_id} $?" >> /tmp/mutation.txt',
+            f"cp /tmp/orig/{index[p]}.py {q}",
+            stale_pyc,
+        ]
+
+    for p in paths:
+        lines.append(f"cp /tmp/orig/{index[p]}.py {shlex.quote(p)}")
+    lines += [_emit(SENTINEL_MUTATION, "/tmp/mutation.txt"), "exit 0"]
     return "\n".join(lines)
 
 

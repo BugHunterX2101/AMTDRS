@@ -3,7 +3,67 @@ is never blocked on prose it could not get."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from principal.db.store import Task
+from principal.outcome import Outcome, OutcomeReport
+
+
+def render_verification_block(
+    verdict: OutcomeReport, impact: dict[str, Any] | None, strength: dict[str, Any] | None,
+) -> str:
+    """What was and was not checked, in plain markdown, from recorded results only.
+
+    It is placed above the model-written description, and nothing in it is
+    generated: a reviewer should be able to trust this section even when every
+    other line of the body came from a model.
+    """
+    lines = [f"## Verification: {verdict.outcome.value}", "", f"> {verdict.headline}"]
+
+    if verdict.reasons:
+        lines += ["", "**Needs a human decision before merge**"]
+        lines += [f"- {r}" for r in verdict.reasons]
+
+    lines += ["", "**What was checked**", "", "| Check | Result |", "|---|---|",
+              "| Tests (every accepted patch together, in a sandbox) | passed |"]
+    lines.append(f"| Blast radius | {_impact_line(impact)} |")
+    lines.append(f"| Test strength | {_strength_line(strength)} |")
+
+    if strength and strength.get("survivors"):
+        lines += ["", "**Faults the tests did not catch** (a gap to inspect, not proof of a bug)"]
+        for s in strength["survivors"][:5]:
+            lines.append(f"- `{s['file']}:{s['line']}` — {s['description']}")
+    if strength and strength.get("status") == "measured":
+        lines += ["", f"_{strength.get('disclaimer', '')}_"]
+
+    if verdict.outcome is not Outcome.VERIFIED:
+        lines += ["", "_This is a draft. Principal does not merge._"]
+    return "\n".join(lines)
+
+
+def _impact_line(impact: dict[str, Any] | None) -> str:
+    if not impact:
+        return "not run"
+    expected, actual = len(impact.get("expected_files") or []), len(impact.get("actual_files") or [])
+    sites = impact.get("expected_call_sites") or 0
+    unchanged = len(impact.get("call_sites_unchanged") or [])
+    warns = impact.get("warnings") or 0
+    text = (f"predicted {expected} file(s), patch changes {actual}; "
+            f"{sites} known call site(s), {sites - unchanged} updated")
+    if impact.get("unexpected_files"):
+        text += f"; **outside the radius: {', '.join(impact['unexpected_files'])}**"
+    return text + (f"; {warns} warning(s)" if warns else "; no warnings")
+
+
+def _strength_line(strength: dict[str, Any] | None) -> str:
+    if not strength:
+        return "not run"
+    status = strength.get("status")
+    if status == "measured":
+        detected, survived = strength.get("detected") or 0, strength.get("survived") or 0
+        return (f"{detected} of {detected + survived} injected faults in the changed lines were detected"
+                f" ({strength.get('score', 0):.0%}, floor {strength.get('floor', 0):.0%})")
+    return f"not measured — {strength.get('reason') or status}"
 
 
 def render_fallback_body(

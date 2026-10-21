@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 PY ?= python
 
-.PHONY: help install dev doctor test lint fmt arch ci serve dashboard bench radius demo docker clean
+.PHONY: help install dev doctor test lint fmt arch ci serve dashboard bench eval radius demo docker clean
 
 help:  ## show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -44,6 +44,10 @@ dashboard:  ## build the dashboard into dashboard/dist
 
 bench:  ## run the three benchmark arms
 	$(PY) -m bench.harness --tasks bench/tasks.json --arms A,B,C
+
+eval: doctor  ## one command: verify credentials, then run every arm on every task, live only
+	$(PY) -m bench.harness --tasks bench/tasks.json --arms A,B,C --clean
+	@echo "report: runs/bench/report.md  (and report.json)"
 
 radius:  ## blast radius of the fixture's target symbol
 	$(PY) -m principal.cli radius --repo tests/fixtures/mini_repo \

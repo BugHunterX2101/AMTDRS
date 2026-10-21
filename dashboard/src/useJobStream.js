@@ -25,6 +25,8 @@ const EMPTY = {
   characterisation: null,
   cleanup: null,
   security: null,
+  impact: null,    // blast-radius check of the integrated patch set
+  strength: null,  // injected-fault audit of the tests over the changed lines
   integration: null,
   prUrl: null,
   events: [],
@@ -154,6 +156,12 @@ function reduce(s, ev) {
     case "security.result":
       return { ...s, security: p };
 
+    case "impact.result":
+      return { ...s, impact: p };
+
+    case "strength.result":
+      return { ...s, strength: p };
+
     case "integration.result":
       return { ...s, integration: p };
 
@@ -209,7 +217,7 @@ export function useJobStream(jobId) {
       "task.settled", "cleanup.planned", "cleanup.tasks_created",
       "cleanup.operation", "cleanup.result", "cleanup.skipped",
       "integration.operation", "integration.conflict", "integration.result",
-      "security.result", "pr.opened", "pr.publish_failed", "stream.resync",
+      "security.result", "impact.result", "strength.operation", "strength.result", "pr.opened", "pr.publish_failed", "stream.resync",
     ];
     for (const k of kinds) es.addEventListener(k, handle(k));
 

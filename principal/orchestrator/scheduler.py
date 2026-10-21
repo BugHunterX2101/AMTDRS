@@ -33,6 +33,7 @@ from principal.gates.tests import run_tests_gate, select_tests
 from principal.graph.embed import ConventionIndex
 from principal.graph.parse import CallSite
 from principal.models.client import ModelClient
+from principal.outcome import INFRA_DISCARD_PREFIX
 from principal.sandbox.client import SandboxClient
 from principal.sandbox.runner import stack_trace as extract_stack_trace
 
@@ -143,11 +144,20 @@ async def _run_sandbox_gate(
         # and cancellation possible.
         ctx.store.update_attempt(attempt_id, operation_id=op_id)
 
-    verdict, run = await run_tests_gate(
-        ctx.sandbox, ctx.c0_image, diff.text, nodeids, timeout_s=ctx.sandbox_timeout_s, on_operation=on_op,
-    )
+    try:
+        verdict, run = await run_tests_gate(
+            ctx.sandbox, ctx.c0_image, diff.text, nodeids, timeout_s=ctx.sandbox_timeout_s,
+            on_operation=on_op,
+        )
+    except PrincipalError as exc:
+        # A timeout or a refused operation is a fact about the platform. Letting
+        # it escape would have `_first_green` swallow it as one more failed
+        # candidate, and the task would be discarded as if the patch were wrong.
+        if not exc.infrastructure:
+            raise
+        return Verdict.fail(VerdictKind.INFRASTRUCTURE, "infrastructure", exc.message), None
     if ctx.bench_accept_without_gates and not verdict.ok and verdict.kind not in (
-        VerdictKind.SCOPE, VerdictKind.SYNTAX,
+        VerdictKind.SCOPE, VerdictKind.SYNTAX, VerdictKind.INFRASTRUCTURE,
     ):
         # The true result is still on `run` (exit code, failing tests) for the
         # benchmark's own independent scoring — only the *decision to proceed*
@@ -172,6 +182,7 @@ async def _one_candidate(
     try:
         diff, completion = await generate_candidate(
             ctx.models, job_id=ctx.job_id, context_pack=context_pack, temperature=temperature, tier=tier,
+            target_file=task.target_file, original=_read_file(ctx.snapshot, task.target_file),
         )
     except DiffUnparseable as exc:
         ctx.store.update_attempt(attempt.id, verdict="error", gate="diffparse")
@@ -213,7 +224,7 @@ async def _one_candidate(
     ctx.store.update_attempt(
         attempt.id, verdict=verdict.kind.value, gate=verdict.gate or "tests",
         result_image=getattr(run, "image", None), exit_code=getattr(run, "exit_code", None),
-        duration_ms=getattr(run, "duration_ms", None),
+        duration_ms=getattr(run, "duration_ms", None), cost=getattr(run, "cost", None),
     )
 
     art_id = None
@@ -285,7 +296,10 @@ async def _repair_once(
     })
 
     try:
-        diff, kind, completion = await repair_agent(ctx.models, job_id=ctx.job_id, prompt=prompt)
+        diff, kind, completion = await repair_agent(
+            ctx.models, job_id=ctx.job_id, prompt=prompt,
+            target_file=task.target_file, original=content,
+        )
     except (DiffUnparseable, PrincipalError) as exc:
         reason = exc.message if isinstance(exc, PrincipalError) else str(exc)
         ctx.store.update_attempt(attempt.id, verdict="error", gate="diffparse")
@@ -324,7 +338,7 @@ async def _repair_once(
     ctx.store.update_attempt(
         attempt.id, verdict=verdict.kind.value, gate=verdict.gate or "tests",
         result_image=getattr(new_run, "image", None), exit_code=getattr(new_run, "exit_code", None),
-        duration_ms=getattr(new_run, "duration_ms", None),
+        duration_ms=getattr(new_run, "duration_ms", None), cost=getattr(new_run, "cost", None),
     )
     ctx.events.emit(ctx.job_id, "attempt.verdict", {
         "task_id": task.id, "attempt_id": attempt.id, "verdict": verdict.kind.value,
@@ -343,7 +357,7 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
     try:
         context_pack = await asyncio.wait_for(_build_context_pack(ctx, task), timeout=60)
     except TimeoutError:
-        return _discard(ctx, task, "context assembly timed out")
+        return _discard(ctx, task, "context assembly timed out", infrastructure=True)
 
     temps = TEMPERATURES[:candidates_per_task] or (0.0,)
     coros = [
@@ -356,11 +370,23 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
             _first_green(coros), timeout=ctx.task_timeout_s,
         )
     except TimeoutError:
-        return _discard(ctx, task, f"exceeded task timeout of {ctx.task_timeout_s}s")
+        # Out of time says nothing about whether the patch is right.
+        return _discard(
+            ctx, task, f"exceeded task timeout of {ctx.task_timeout_s}s", infrastructure=True,
+        )
 
     if winner is not None:
         attempt_id, _, run = winner
         return _verify_and_settle(ctx, task, attempt_id, run)
+
+    # Every candidate that settled was an inconclusive platform failure. There is
+    # no failing test for a Repairer to read, so repairing would be a model call
+    # spent guessing; the honest result is that this task was never evaluated.
+    if failures and all(o[1].kind is VerdictKind.INFRASTRUCTURE for o in failures):
+        return _discard(
+            ctx, task, "the sandbox could not evaluate any candidate for this task",
+            infrastructure=True,
+        )
 
     # No first-attempt candidate went green. Repair with the most informative
     # failure: prefer a real test failure over a scope/syntax rejection.
@@ -374,13 +400,34 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
                 _repair_once(ctx, task, last_diff or "", last_run, n), timeout=ctx.task_timeout_s,
             )
         except TimeoutError:
-            return _discard(ctx, task, f"repair exceeded task timeout of {ctx.task_timeout_s}s")
+            return _discard(
+                ctx, task, f"repair exceeded task timeout of {ctx.task_timeout_s}s",
+                infrastructure=_every_attempt_inconclusive(ctx, task),
+            )
         if verdict.ok:
             return _verify_and_settle(ctx, task, attempt_id, run)
+        if verdict.kind is VerdictKind.INFRASTRUCTURE:
+            # Retrying immediately against a platform that just failed is
+            # wasted spend; leave it to the user's retry, which is budgeted.
+            break
         last_run = run
         n += 1
 
-    return _discard(ctx, task, "exhausted: no candidate or repair passed local tests")
+    return _discard(
+        ctx, task, "exhausted: no candidate or repair passed local tests",
+        infrastructure=_every_attempt_inconclusive(ctx, task),
+    )
+
+
+def _every_attempt_inconclusive(ctx: TaskContext, task: Task) -> bool:
+    """True when this task has attempts and none of them reached a real verdict.
+
+    Read back from the attempt rows rather than tracked in a local, so a task is
+    classified by everything that actually happened to it — including the
+    repairs — and not by whichever branch happened to end the loop.
+    """
+    verdicts = [a.verdict for a in ctx.store.attempts_of(ctx.job_id) if a.task_id == task.id]
+    return bool(verdicts) and all(v == VerdictKind.INFRASTRUCTURE.value for v in verdicts)
 
 
 def _informativeness(outcome: Outcome) -> tuple[int, str]:
@@ -393,7 +440,10 @@ def _informativeness(outcome: Outcome) -> tuple[int, str]:
     every first repair before this ranked instead of taking whichever attempt
     happened to be written last.
     """
-    attempt_id, _verdict, run = outcome
+    attempt_id, verdict, run = outcome
+    if verdict.kind is VerdictKind.INFRASTRUCTURE:
+        # Nothing to repair from: the candidate was never judged.
+        return -1, attempt_id
     if run is None:
         return 0, attempt_id
     if getattr(run, "failing", None) or getattr(run, "report_json", ""):
@@ -437,9 +487,14 @@ def _verify_and_settle(ctx: TaskContext, task: Task, attempt_id: str, run: objec
     )
 
 
-def _discard(ctx: TaskContext, task: Task, reason: str) -> TaskResult:
+def _discard(ctx: TaskContext, task: Task, reason: str, *, infrastructure: bool = False) -> TaskResult:
+    if infrastructure:
+        reason = f"{INFRA_DISCARD_PREFIX}: {reason}"
     ctx.store.update_task(task.id, state="discarded", discard_reason=reason)
-    ctx.events.emit(ctx.job_id, "task.settled", {"task_id": task.id, "discard_reason": reason})
+    payload: dict[str, object] = {"task_id": task.id, "discard_reason": reason}
+    if infrastructure:
+        payload["infrastructure"] = True
+    ctx.events.emit(ctx.job_id, "task.settled", payload)
     return TaskResult(task=task, settled="discarded", reason=reason)
 
 

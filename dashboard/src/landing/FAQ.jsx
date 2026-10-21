@@ -33,7 +33,11 @@ const ITEMS = [
   },
   {
     q: "Is any of this actually benchmarked?",
-    a: "The evaluation plan runs a fixed subset of Scale AI's SWE Atlas Refactoring benchmark — Python and TypeScript, interface-evolution and relocation tasks — across four arms: an unscaffolded Nemotron baseline, sandbox-with-retry alone, the full Principal swarm, and published frontier scores for reference. Every model call is logged and every trace is published to the repo, specifically so the result doesn't have to be taken on trust.",
+    a: "The harness exists and runs; a published result does not yet. `make eval` checks credentials, then runs three arms — a single ungated shot, one gated candidate, and the full swarm — on every task in `bench/tasks.json`, including a repository whose tests pass but are weak. It reports verified, unverified and failed runs separately, excludes platform failures instead of counting them against a patch, and stamps the report LIVE or NOT LIVE. It has not been run against Scale AI's SWE Atlas Refactoring subset, so no comparison to that leaderboard is claimed.",
+  },
+  {
+    q: "What do Verified, Unverified, Failed and Error mean?",
+    a: "Verified: the tests pass and every check that ran came back clean. Unverified: the tests pass, or nothing could be checked, but something is still open — a call site no test exercises, or tests that missed injected faults in the changed lines — so a human has to decide. Failed: a check found a definite defect, and nothing is offered. Error: the platform failed, which says nothing about the patch and is never counted against it. Every finished run has an evidence bundle: the verdict, each gate's result, every attempt's diff and test log with SHA-256 hashes, and the command that reproduces the run.",
   },
   {
     q: "Who actually holds the GitHub credential?",
@@ -41,7 +45,7 @@ const ITEMS = [
   },
   {
     q: "What does the hosted console do without credentials?",
-    a: "It runs the deterministic half for real: it builds a verified green baseline in an in-process sandbox with real `git` and real `pytest`, parses the repository with tree-sitter, and computes the blast radius — then stops at planning, because generating a patch needs an inference key and there isn't one. That's the honest boundary, and it's deliberately where the demo sits: everything a model can't fake is what you can check for free. Point it at a real repository with your own Token Factory key to see the rest.",
+    a: "It runs the deterministic half for real: it builds a verified green baseline in an in-process sandbox with real `git` and real `pytest`, parses the repository with tree-sitter, and computes the blast radius — then stops at planning, because generating a patch needs an inference key and there isn't one. That's the honest boundary, and it's deliberately where the demo sits: everything a model can't fake is what you can check for free. Every run is labelled LIVE (real Nebius sandbox and real inference) or NOT LIVE (a local stand-in), and a NOT LIVE result is never a measurement of the platform. Point it at a real repository with your own Token Factory key to see the rest.",
   },
 ];
 

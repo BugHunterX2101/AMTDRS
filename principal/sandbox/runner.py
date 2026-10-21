@@ -19,6 +19,12 @@ from principal.sandbox.scripts import (
 APPLY_FAILED_EXIT = 90
 CONFLICT_EXIT = 91
 
+# Exit statuses a shell reports when it was stopped from outside rather than
+# when the tests finished: `timeout(1)`, SIGKILL (the OOM killer's signature) and
+# SIGTERM. A run that ends this way and produced no report never got as far as a
+# verdict on the code.
+INFRA_EXIT_CODES = frozenset({124, 137, 143})
+
 
 @dataclass(slots=True)
 class TestRun:
@@ -37,6 +43,12 @@ class TestRun:
     duration_ms: int = 0
     apply_failed: bool = False
     conflict_index: int | None = None
+    cost: float = 0.0
+    timed_out: bool = False
+    # True when the run was cut short by the platform (timeout, kill) before it
+    # produced a test report. Such a run is inconclusive: it says nothing about
+    # whether the patch is right, and nothing downstream may count it as RED.
+    infrastructure: bool = False
 
     @property
     def green(self) -> bool:
@@ -89,12 +101,18 @@ def _parse(result: RunResult) -> TestRun:
         duration_ms=result.duration_ms,
         apply_failed="PRINCIPAL_APPLY_FAILED" in result.stdout
         or result.exit_code == APPLY_FAILED_EXIT,
+        cost=float(getattr(result, "cost", 0.0) or 0.0),
+        timed_out=bool(getattr(result, "timed_out", False)),
     )
 
     try:
         data = json.loads(report or "{}")
     except json.JSONDecodeError:
         data = {}
+
+    run.infrastructure = not run.apply_failed and (
+        run.timed_out or (not data and result.exit_code in INFRA_EXIT_CODES)
+    )
 
     summary = data.get("summary", {}) or {}
     run.passed = int(summary.get("passed", 0) or 0)

@@ -14,7 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from principal.db.store import Store
-from principal.orchestrator.job import _characterisation_only_files, _uncovered_files
+from principal.orchestrator.signals import characterisation_only_files as _characterisation_only_files
+from principal.orchestrator.signals import uncovered_files as _uncovered_files
 from tests.conftest import FIXTURE_SHA, MINI_REPO
 
 

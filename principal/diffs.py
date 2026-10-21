@@ -18,6 +18,7 @@ that was never the problem.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
@@ -61,6 +62,7 @@ def parse_diff(raw_text: str) -> ParsedDiff:
     if not text.strip():
         raise DiffUnparseable("diff block was empty")
 
+    text = _normalise_hunks(text)
     try:
         patch = unidiff.PatchSet(text)
     except unidiff.UnidiffParseError as exc:
@@ -85,6 +87,91 @@ def parse_diff(raw_text: str) -> ParsedDiff:
     touched.discard("/dev/null")
 
     return ParsedDiff(text=text, patch=patch, touched_paths=touched)
+
+
+_HUNK_HEADER = re.compile(r"^@@\s*-(\d+)(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@")
+_NO_NEWLINE = "\\ No newline at end of file"
+
+
+def _normalise_hunks(text: str) -> str:
+    """Fill in hunk headers that carry no line numbers.
+
+    Models copy the prompt's `@@ ...` placeholder, and `unidiff` then sees no
+    hunks at all. The counts are redundant with the body, so derive them. A start
+    line is only ever a hint for `canonicalise`, which locates hunks by content.
+    """
+    out: list[str] = []
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.startswith("@@"):
+            out.append(line)
+            i += 1
+            continue
+        m = _HUNK_HEADER.match(line)
+        start = int(m.group(1)) if m else 1
+        i += 1
+        body: list[str] = []
+        while i < len(lines) and not lines[i].startswith("@@") and not (
+            lines[i].startswith("--- ") and i + 1 < len(lines) and lines[i + 1].startswith("+++ ")
+        ):
+            body.append(lines[i])
+            i += 1
+        while body and body[-1] == "":
+            body.pop()
+        fixed = [b if b[:1] in {" ", "+", "-", "\\"} else " " + b for b in body]
+        old = sum(1 for b in fixed if b[0] in " -")
+        new = sum(1 for b in fixed if b[0] in " +")
+        # A numeric header makes a claim about the body, and a body that falls
+        # short of it is how a truncated model response looks. Keep such a header
+        # as written so `unidiff` still rejects the mismatch; only a placeholder
+        # header with no numbers at all is filled in.
+        out.append(line if m else f"@@ -{start},{old} +{start},{new} @@")
+        out.extend(fixed)
+    return "\n".join(out)
+
+
+def canonicalise(parsed: ParsedDiff, target_file: str, original: str) -> ParsedDiff:
+    """Re-derive a correct unified diff from what the hunks mean.
+
+    Hunks are located by their content, not by the line numbers the model wrote,
+    which are routinely off. The patched text is then diffed against the original
+    to produce headers `git apply` accepts. Deterministic, and no model is
+    involved: a hunk whose context cannot be found in the file is rejected.
+    """
+    files = list(parsed.patch)
+    if len(files) != 1 or files[0].is_added_file or files[0].is_removed_file:
+        return parsed
+
+    src = original.splitlines(keepends=True)
+    eol = "\r\n" if src and src[0].endswith("\r\n") else "\n"
+    out: list[str] = []
+    cursor = 0
+    for hunk in files[0]:
+        old = [ln.value.rstrip("\r\n") for ln in hunk if ln.is_context or ln.is_removed]
+        new = [ln.value.rstrip("\r\n") for ln in hunk if ln.is_context or ln.is_added]
+        hint = max(hunk.source_start - 1, 0)
+        starts = [
+            s for s in range(cursor, len(src) - len(old) + 1)
+            if all(src[s + k].rstrip("\r\n") == old[k] for k in range(len(old)))
+        ]
+        if old and not starts:
+            raise DiffUnparseable("context mismatch: a hunk's context is not found in the file")
+        at = min(starts, key=lambda s: abs(s - hint)) if old else min(max(hint, cursor), len(src))
+        out.extend(src[cursor:at])
+        out.extend(n + eol for n in new)
+        cursor = at + len(old)
+    out.extend(src[cursor:])
+
+    if out == src:
+        raise DiffUnparseable("diff block contains no hunks, so it would change nothing")
+
+    body: list[str] = []
+    for ln in list(difflib.unified_diff(src, out, n=3))[2:]:
+        body.append(ln if ln.endswith("\n") else ln + "\n" + _NO_NEWLINE + "\n")
+    text = f"--- a/{target_file}\n+++ b/{target_file}\n" + "".join(body)
+    return parse_diff(f"{OPEN}\n{text}{CLOSE}")
 
 
 def path_traversal(paths: set[str]) -> bool:

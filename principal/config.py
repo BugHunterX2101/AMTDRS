@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     token_budget_default: int = 2_000_000
     max_discard_ratio: float = 0.30
 
+    # After a refactor passes, inject small faults into only the lines it changed
+    # and rerun the covering tests: a suite that cannot see them proves little.
+    # One extra sandbox operation per job, so it can be turned off. The floor
+    # mirrors `gates.characterise.DEFAULT_MUTATION_FLOOR` (a test keeps them equal;
+    # config sits below the gates and cannot import it).
+    strength_audit_enabled: bool = True
+    strength_audit_cap: int = 20
+    strength_floor: float = 0.60
+
     # Benchmark only. Arm A must run in a sandbox like every other arm — else
     # the comparison is between execution environments rather than between
     # strategies — but it must not *gate* on the result. This flag accepts a
@@ -145,6 +154,9 @@ class Settings(BaseSettings):
             "task_timeout_s": self.task_timeout_s,
             "sandbox_timeout_s": self.sandbox_timeout_s,
             "max_discard_ratio": self.max_discard_ratio,
+            "strength_audit_enabled": self.strength_audit_enabled,
+            "strength_audit_cap": self.strength_audit_cap,
+            "strength_floor": self.strength_floor,
             "planner_tier": self.principal_planner_tier.value,
             "models": {
                 "nano": self.principal_model_nano,

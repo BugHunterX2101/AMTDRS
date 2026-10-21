@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Response
+from fastapi.responses import PlainTextResponse
 from sse_starlette.sse import EventSourceResponse
 
 from principal.api.schemas import (
@@ -20,7 +21,10 @@ from principal.api.schemas import (
 from principal.api.stream import job_event_stream
 from principal.errors import PrincipalError
 from principal.graph.radius import blast_radius, find_target
+from principal.orchestrator.evidence import build_evidence, build_zip, provenance_of, render_markdown
 from principal.orchestrator.job import run_job
+from principal.orchestrator.signals import execution_provenance, gather_signals
+from principal.outcome import classify
 
 router = APIRouter()
 
@@ -62,10 +66,14 @@ async def healthz(request: Request):
 async def create_job(body: CreateJobRequest, request: Request):
     app = _state(request)
     settings = app.settings
+    tunables = settings.recorded_tunables()
+    tunables["execution_provenance"] = execution_provenance(
+        app.sandbox, app.models, settings, verified=getattr(app, "backends", None),
+    )
     job = app.store.create_job(
         repo_url=body.repo_url, commit_sha=body.commit_sha, goal=body.goal,
         target_fqn=body.target_fqn, token_budget=body.token_budget or settings.token_budget_default,
-        tunables=settings.recorded_tunables(), routine=body.routine,
+        tunables=tunables, routine=body.routine,
     )
     if body.max_tasks:
         settings = settings.model_copy(update={"max_tasks": body.max_tasks})
@@ -137,6 +145,39 @@ async def get_job(job_id: str, request: Request):
         rate_limit=RateLimitInfo(remaining_requests=app.models.rate_headroom.remaining_requests,
                                   remaining_tokens=app.models.rate_headroom.remaining_tokens),
         radius=radius, pr_url=job.pr_url,
+        outcome=(verdict.to_payload() if (verdict := classify(gather_signals(app.store, job_id))) else None),
+        provenance=provenance_of(app.store, job_id),
+    )
+
+
+@router.get("/jobs/{job_id}/evidence")
+async def job_evidence(job_id: str, request: Request):
+    """Everything needed to judge the run, as JSON, built from the stored record."""
+    app = _state(request)
+    evidence = build_evidence(app.store, app.settings, job_id)
+    if evidence is None:
+        raise HTTPException(404, "job not found")
+    return evidence
+
+
+@router.get("/jobs/{job_id}/evidence.md", response_class=PlainTextResponse)
+async def job_evidence_markdown(job_id: str, request: Request):
+    app = _state(request)
+    evidence = build_evidence(app.store, app.settings, job_id)
+    if evidence is None:
+        raise HTTPException(404, "job not found")
+    return PlainTextResponse(render_markdown(evidence), media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/jobs/{job_id}/evidence.zip")
+async def job_evidence_zip(job_id: str, request: Request):
+    app = _state(request)
+    evidence = build_evidence(app.store, app.settings, job_id)
+    if evidence is None:
+        raise HTTPException(404, "job not found")
+    return Response(
+        build_zip(app.store, app.settings, evidence), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="evidence-{job_id}.zip"'},
     )
 
 

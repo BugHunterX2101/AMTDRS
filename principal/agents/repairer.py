@@ -10,9 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from principal.agents.coder import max_tokens_for
 from principal.agents.contracts import RepairKind
 from principal.config import Tier
-from principal.diffs import ParsedDiff, parse_diff
+from principal.diffs import ParsedDiff, canonicalise, parse_diff
 from principal.graph.languages import lang_of
 from principal.models.client import Completion, ModelClient
 
@@ -35,12 +36,15 @@ def render_repair_prompt(
 
 async def repair(
     client: ModelClient, *, job_id: str, prompt: str, temperature: float = 0.2, tier: Tier = Tier.SUPER,
+    target_file: str | None = None, original: str | None = None,
 ) -> tuple[ParsedDiff, RepairKind, Completion]:
     messages = [{"role": "user", "content": prompt}]
     completion = await client.complete(
-        tier, messages, temperature=temperature, job_id=job_id, max_tokens=3000,
+        tier, messages, temperature=temperature, job_id=job_id, max_tokens=max_tokens_for(tier),
     )
     diff = parse_diff(completion.text)
+    if original is not None and target_file is not None:
+        diff = canonicalise(diff, target_file, original)
     kind = _extract_kind(completion.text)
     return diff, kind, completion
 

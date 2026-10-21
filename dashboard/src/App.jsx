@@ -4,8 +4,10 @@ import { Backdrop } from "./Backdrop";
 import {
   Economics,
   EvidenceDrawer,
+  EvidenceLinks,
   EventLog,
   ForkTree,
+  ImpactPanel,
   JobForm,
   Masthead,
   Outcome,
@@ -13,6 +15,8 @@ import {
   Pipeline,
   RadiusPanel,
   Stats,
+  Steps,
+  StrengthPanel,
   TaskBoard,
 } from "./components";
 
@@ -150,11 +154,14 @@ export default function App() {
       <div className="app">
       <Masthead
         health={health}
+        provenance={status?.provenance}
         connected={connected}
         jobId={jobId}
         running={running}
         onCancel={cancel}
       />
+
+      <Steps jobId={jobId} state={job.state} running={running} />
 
       <div className="columns">
         {/* ------------------------------------------------------- left -- */}
@@ -225,7 +232,17 @@ export default function App() {
             </div>
           </section>
 
-          <Outcome job={job} />
+          <Outcome job={job} verdict={terminal ? status?.outcome : null} />
+
+          <section className="panel" data-accent="impact">
+            <PanelHeader>Blast-radius check</PanelHeader>
+            <ImpactPanel impact={job.impact} running={running} />
+          </section>
+
+          <section className="panel" data-accent="strength">
+            <PanelHeader>Test strength</PanelHeader>
+            <StrengthPanel strength={job.strength} running={running} />
+          </section>
 
           <section className="panel" data-accent="tasks">
             <PanelHeader>Tasks and candidates</PanelHeader>
@@ -238,6 +255,11 @@ export default function App() {
           <section className="panel" data-accent="economics">
             <PanelHeader>Run economics</PanelHeader>
             <Economics job={job} status={status} />
+          </section>
+
+          <section className="panel" data-accent="evidence">
+            <PanelHeader>Evidence</PanelHeader>
+            <EvidenceLinks jobId={jobId} ready={terminal} />
           </section>
 
           <section className="panel" data-accent="log">
@@ -253,7 +275,10 @@ export default function App() {
                 <code> pytest</code> exit code from a real run in a Token Factory
                 Sandbox — never a score from a language model. The architecture
                 contract that forbids <code>gates</code> from importing{" "}
-                <code>models</code> is checked in CI.
+                <code>models</code> is checked in CI. The badge at the top says
+                whether this run used the real Nebius sandbox and inference; a run on
+                the local stand-in is labelled <em>not live</em> and is not a
+                measurement of the platform.
               </p>
             </div>
           </section>

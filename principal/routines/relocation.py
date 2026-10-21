@@ -79,5 +79,5 @@ def moved_symbols(declared_removals: list[str], patched_exports: dict[str, set[s
     """
     present: set[str] = set()
     for names in patched_exports.values():
-        present |= names
+        present |= names | {n.rsplit(".", 1)[-1] for n in names}
     return {name for name in declared_removals if name in present}

@@ -124,3 +124,7 @@ def test_moved_symbols_ignores_a_declared_removal_that_vanished_entirely():
     export the symbol, and both are legitimate."""
     moved = moved_symbols(["create"], {"src/new_home.py": {"something_else"}})
     assert moved == set()
+
+
+def test_moved_symbols_matches_a_bare_declared_name_against_fqn_exports():
+    assert moved_symbols(["create"], {"src/new_home.py": {"src.new_home.create"}}) == {"create"}

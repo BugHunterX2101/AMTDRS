@@ -18,10 +18,10 @@ const LEADERBOARD = [
 ];
 
 const ARMS = [
-  { id: "A", label: "Baseline", body: "Nemotron 3 Super alone, full repo in context, one attempt, no sandbox. What the open model does unaided." },
-  { id: "B", label: "Sandbox, no swarm", body: "Same model, one sandbox, tests available, retry on failure. Isolates the value of verification alone." },
-  { id: "C", label: "Principal", body: "Full swarm — blast radius, parallel forks, tiered routing. Isolates the value of the full architecture." },
-  { id: "D", label: "Reference", body: "Published frontier scores on the identical task subset. The honest distance still remaining." },
+  { id: "A", label: "Single shot, no gates", body: "One candidate, run in the same sandbox but accepted whatever the tests say. What one model call achieves unsupervised." },
+  { id: "B", label: "One candidate, gates on", body: "Same single candidate, but it must pass every gate. Isolates the value of verification alone." },
+  { id: "C", label: "Full swarm", body: "Three candidates per task plus repairs, same gates. Isolates the added value of parallel search." },
+  { id: "D", label: "Reference", body: "Published frontier scores, shown for distance only. Not run by this repo, and a different task set." },
 ];
 
 export function Evidence() {

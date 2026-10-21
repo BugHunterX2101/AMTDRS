@@ -66,6 +66,10 @@ INFRASTRUCTURE: frozenset[Code] = frozenset(
     {
         Code.SANDBOX_TIMEOUT,
         Code.SANDBOX_OP_FAILED,
+        # A 403 is the project's entitlement, not anything about the patch. If it
+        # surfaced mid-job it must read as "the platform refused", never as a
+        # candidate that failed.
+        Code.SANDBOX_FORBIDDEN,
         Code.MODEL_EMPTY_RESPONSE,
         Code.MODEL_RATE_LIMITED,
     }

@@ -92,7 +92,7 @@ def build(store: Store, snapshot: Path, repo_url: str, commit_sha: str, *, rebui
             file_ids[rel] = int(cur.lastrowid or 0)
 
         resolver = Resolver(parsed)
-        module_of = {rel: _module_name(rel, pf.lang) for rel, pf in parsed.items()}
+        module_of = {rel: module_name(rel, pf.lang) for rel, pf in parsed.items()}
         symbol_count = 0
         # Which file each symbol id was defined in. Recorded as the rows are
         # written so the test-edge pass below does not have to ask the database
@@ -177,7 +177,7 @@ def build(store: Store, snapshot: Path, repo_url: str, commit_sha: str, *, rebui
     )
 
 
-def _module_name(rel: str, lang: str) -> str:
+def module_name(rel: str, lang: str) -> str:
     p = Path(rel)
     parts = list(p.parts)
     if lang == "python":

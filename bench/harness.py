@@ -34,6 +34,8 @@ from principal.db.store import Store
 from principal.errors import PrincipalError
 from principal.models.cache import DiskCache
 from principal.models.client import ModelClient
+from principal.orchestrator.signals import execution_provenance, gather_signals
+from principal.outcome import Outcome, classify
 
 logger = logging.getLogger("bench")
 
@@ -48,7 +50,9 @@ def load_tasks(path: Path) -> list[dict]:
     return tasks
 
 
-async def run_one(task: dict, arm: Arm, base_settings: Settings, work_dir: Path) -> TaskOutcome:
+async def run_one(
+    task: dict, arm: Arm, base_settings: Settings, work_dir: Path,
+) -> tuple[TaskOutcome, dict]:
     run_id = f"{task['id']}__{arm.name}"
     work_dir.mkdir(parents=True, exist_ok=True)
     settings = arm.settings(base_settings).model_copy(
@@ -77,11 +81,13 @@ async def run_one(task: dict, arm: Arm, base_settings: Settings, work_dir: Path)
     )
 
     sandbox = _make_sandbox(settings)
+    provenance = execution_provenance(sandbox, models, settings)
 
     job = store.create_job(
         repo_url=task["repo_url"], commit_sha=task["commit_sha"], goal=task["goal"],
         target_fqn=task.get("target_fqn"), token_budget=settings.token_budget_default,
-        tunables={**settings.recorded_tunables(), "arm": arm.name, "task_id": task["id"]},
+        tunables={**settings.recorded_tunables(), "arm": arm.name, "task_id": task["id"],
+                  "execution_provenance": provenance},
     )
 
     started = time.monotonic()
@@ -104,30 +110,37 @@ async def run_one(task: dict, arm: Arm, base_settings: Settings, work_dir: Path)
     attempts = store.attempts_of(job.id)
     tasks_ = store.tasks_of(job.id)
 
-    verified = _independently_verify(final, tasks_, attempts, bench_ungated=arm.name == "A")
+    ungated = arm.name == "A"
+    # The ungated arm skips the checks the classification reads, so it has none.
+    verdict = None if ungated else classify(gather_signals(store, job.id))
+    verified = _independently_verify(final, tasks_, attempts, verdict=verdict, bench_ungated=ungated)
 
     outcome = TaskOutcome(
         task_id=task["id"], arm=arm.name, verified=verified, error_code=error_code,
         duration_s=round(duration, 2), tokens=final.tokens_spent if final else 0,
         sandbox_runs=len(attempts), candidates=arm.candidates,
-        repairs=sum(1 for a in attempts if a.kind == "repairer"),
+        repairs=sum(1 for a in attempts if a.kind == "repair"),
         pr_opened=bool(final and final.pr_url), note=note or (final.stop_reason if final else ""),
+        outcome=verdict.outcome.value if verdict else "", cause=verdict.cause if verdict else "",
+        failed_attempts=sum(1 for a in attempts if a.verdict not in (None, "ok")),
+        sandbox_cost=sum(a.cost or 0.0 for a in attempts),
     )
     store.close()
-    return outcome
+    return outcome, provenance
 
 
-def _independently_verify(final, tasks_, attempts, *, bench_ungated: bool) -> bool:
+def _independently_verify(final, tasks_, attempts, *, verdict, bench_ungated: bool) -> bool:
     """The number that actually gets scored, computed the same way regardless
-    of arm. For a gated arm this is just "did the job finish Done" — the
-    orchestrator already refused to say so otherwise. For the ungated arm it is
-    recomputed from the attempts' *true* exit codes, because the job accepted
-    the winning candidate without checking and its own verdict cannot be
-    trusted for scoring."""
+    of arm. For a gated arm it is the product's own outcome: VERIFIED, not merely
+    "the job finished" — a run can finish with tests green and caveats still open,
+    and that is UNVERIFIED, not a win. For the ungated arm it is recomputed from
+    the attempts' *true* exit codes, because the job accepted the winning
+    candidate without checking and its own verdict cannot be trusted for
+    scoring."""
     if final is None or final.state != "Done":
         return False
     if not bench_ungated:
-        return True
+        return verdict is not None and verdict.outcome is Outcome.VERIFIED
 
     winners = {t.winning_attempt_id for t in tasks_ if t.winning_attempt_id}
     if not winners:
@@ -185,22 +198,37 @@ async def main_async(args: argparse.Namespace) -> int:
         shutil.rmtree(work_dir)
 
     outcomes = []
+    provenance: dict | None = None
     for task in tasks:
         for arm in arms:
             print(f"[{task['id']} / arm {arm.name}] {arm.description}", file=sys.stderr)
-            outcome = await run_one(task, arm, base_settings, work_dir)
-            status = "VERIFIED" if outcome.verified else ("infra" if outcome.infrastructure else "failed")
+            outcome, run_provenance = await run_one(task, arm, base_settings, work_dir)
+            # One report, one label: it is live only if every run in it was.
+            provenance = run_provenance if provenance is None else {
+                **provenance, "live": bool(provenance.get("live") and run_provenance.get("live")),
+            }
+            if outcome.verified:
+                status = "VERIFIED"
+            elif outcome.unverified:
+                status = "unverified"
+            else:
+                status = "infra" if outcome.infrastructure else "failed"
             print(f"  -> {status}  {outcome.duration_s}s  {outcome.tokens} tokens", file=sys.stderr)
             outcomes.append(outcome)
 
     arm_scores = score(outcomes)
     report_path = work_dir / "report.json"
-    write_report(arm_scores, outcomes, report_path)
+    write_report(arm_scores, outcomes, report_path, provenance)
+
+    table = render(arm_scores, provenance)
+    markdown_path = work_dir / "report.md"
+    markdown_path.write_text(f"# Principal benchmark\n\n```\n{table}\n```\n", encoding="utf-8")
 
     print()
-    print(render(arm_scores))
+    print(table)
     print()
     print(f"full report: {report_path}")
+    print(f"markdown:    {markdown_path}")
     return 0
 
 

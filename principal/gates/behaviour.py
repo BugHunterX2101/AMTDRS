@@ -63,7 +63,12 @@ def check_api_delta(
         after |= {f"{path}::{n}" for n in names}
 
     missing = before - after
-    undeclared = sorted(m for m in missing if m.split("::", 1)[-1] not in declared_removals)
+    # A plan names a removal either as the full fqn or as the bare symbol name.
+    undeclared = sorted(
+        m for m in missing
+        if (fqn := m.split("::", 1)[-1]) not in declared_removals
+        and fqn.rsplit(".", 1)[-1] not in declared_removals
+    )
     return (len(undeclared) == 0), undeclared
 
 

@@ -69,6 +69,11 @@ class SandboxClient(Protocol):
 class ContreeSandbox:
     """The real client. Every sandbox side effect in the system goes through here."""
 
+    # Provenance label, read by the orchestrator when it records what executed a
+    # job. Anything that reports a result from this client may say it ran on
+    # Token Factory Sandboxes; the in-process fake says "local" instead.
+    execution_mode = "live"
+
     def __init__(self, api_key: str, project_id: str, base_url: str | None = None,
                  max_inflight: int = 24):
         from contree_sdk import Contree
@@ -94,15 +99,26 @@ class ContreeSandbox:
 
         self._client._start_operation = probed  # type: ignore[method-assign]
 
+        # The SDK's wait loop has no tolerance for a 5xx on a status poll, so one
+        # blip cancels an operation that is still healthy. Polling is read-only,
+        # so retry it here instead of restarting the whole run.
+        api = self._client._api
+        original_poll = api.get_operation_status
+
+        async def tolerant_poll(operation_uuid):  # noqa: ANN001
+            return await _retrying(lambda: original_poll(operation_uuid), attempts=_POLL_ATTEMPTS)
+
+        api.get_operation_status = tolerant_poll  # type: ignore[method-assign]
+
     async def use(self, ref: str) -> Any:
         try:
-            return await self._client.images.oci(ref)
+            return await _retrying(lambda: self._client.images.oci(ref))
         except Exception as exc:  # noqa: BLE001
             raise _translate(exc) from exc
 
     async def from_uuid(self, uuid: str) -> Any:
         try:
-            return await self._client.images.use(uuid)
+            return await _retrying(lambda: self._client.images.use(uuid))
         except Exception as exc:  # noqa: BLE001
             raise _translate(exc) from exc
 
@@ -123,15 +139,19 @@ class ContreeSandbox:
         started = time.monotonic()
         try:
             async with self._sem:
-                prepared = image.run(
-                    shell=script,
-                    disposable=disposable,
-                    timeout=timeout_s,
-                    tag=tag,
-                    env=env or {},
-                )
+                def prepare() -> Any:
+                    return image.run(
+                        shell=script,
+                        disposable=disposable,
+                        timeout=timeout_s,
+                        tag=tag,
+                        env=env or {},
+                    )
+
                 try:
-                    done = await asyncio.wait_for(prepared, timeout=timeout_s + 60)
+                    done = await asyncio.wait_for(
+                        _retrying(lambda: prepare()), timeout=timeout_s + 60,
+                    )
                 except TimeoutError as exc:
                     await self._cancel_quietly(op_holder.get("id"))
                     raise SandboxTimeout(timeout_s + 60) from exc
@@ -174,7 +194,7 @@ class ContreeSandbox:
         # retention policy. A baseline that disappears between the benchmark run
         # and the demo recording would be an unpleasant surprise.
         try:
-            return await image.tag_as(tag)
+            return await _retrying(lambda: image.tag_as(tag))
         except Exception as exc:  # noqa: BLE001
             raise _translate(exc) from exc
 
@@ -200,6 +220,38 @@ def _as_text(value: Any) -> str:
         data = read()
         return data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data)
     return str(value)
+
+
+_TRANSIENT_ATTEMPTS = 4
+_TRANSIENT_BACKOFF_S = (2.0, 5.0, 12.0)
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """A 5xx or a dropped connection from the sandbox API, not anything the script did."""
+    from contree_sdk.sdk.exceptions import ApiStatusCodeError, ContreeTransportError
+
+    if isinstance(exc, ApiStatusCodeError):
+        return exc.status is not None and exc.status >= 500
+    return isinstance(exc, ContreeTransportError)
+
+
+_POLL_ATTEMPTS = 8
+
+
+async def _retrying(call: Callable[[], Any], attempts: int = _TRANSIENT_ATTEMPTS) -> Any:
+    """Retry `call` on transient API failures.
+
+    Safe because nothing here mutates an image: a run is image + command -> new
+    image, so repeating it can only cost time. Exit codes, 403s and timeouts are
+    not transient and are raised on the first attempt.
+    """
+    for attempt in range(attempts):
+        try:
+            return await call()
+        except Exception as exc:  # noqa: BLE001
+            if attempt == attempts - 1 or not _is_transient(exc):
+                raise
+            await asyncio.sleep(_TRANSIENT_BACKOFF_S[min(attempt, len(_TRANSIENT_BACKOFF_S) - 1)])
 
 
 def _translate(exc: Exception) -> Exception:

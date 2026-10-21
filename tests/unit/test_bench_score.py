@@ -80,3 +80,68 @@ def test_arms_are_scored_independently():
 def test_tokens_per_verified_is_none_when_nothing_verified():
     outcomes = [TaskOutcome("t1", "A", verified=False, error_code="GATE_TESTS_RED", tokens=500)]
     assert score(outcomes)["A"].tokens_per_verified is None
+
+
+# ------------------------------------------------- outcome-aware scoring --
+
+from bench.score import provenance_line, render  # noqa: E402
+
+
+def test_tests_green_with_open_caveats_is_not_a_win_and_not_a_failure():
+    outcomes = [
+        TaskOutcome("t1", "C", verified=False, outcome="UNVERIFIED", cause="caveats"),
+        TaskOutcome("t2", "C", verified=True, outcome="VERIFIED"),
+    ]
+    s = score(outcomes)["C"]
+    assert (s.verified, s.unverified, s.failed_on_merit) == (1, 1, 0)
+    assert s.verified_rate == 0.5, "an unverified pass stays in the denominator"
+
+
+def test_no_candidate_verified_is_a_miss_even_though_the_outcome_says_unverified():
+    outcomes = [TaskOutcome("t1", "C", verified=False, outcome="UNVERIFIED", cause="no_candidate")]
+    s = score(outcomes)["C"]
+    assert (s.unverified, s.failed_on_merit) == (0, 1)
+
+
+def test_an_error_outcome_is_infrastructure_even_without_an_error_code():
+    outcomes = [TaskOutcome("t1", "C", verified=False, outcome="ERROR", cause="infrastructure")]
+    s = score(outcomes)["C"]
+    assert s.excluded_infrastructure == 1 and s.scored == 0
+
+
+def test_time_to_verified_uses_only_verified_runs():
+    outcomes = [
+        TaskOutcome("t1", "C", verified=True, duration_s=100.0),
+        TaskOutcome("t2", "C", verified=True, duration_s=300.0),
+        TaskOutcome("t3", "C", verified=False, error_code="GATE_BEHAVIOUR", duration_s=9999.0),
+    ]
+    row = score(outcomes)["C"].to_row()
+    assert row["median_time_to_verified_s"] == 200.0
+
+
+def test_failed_attempts_per_verified_counts_the_work_thrown_away():
+    outcomes = [
+        TaskOutcome("t1", "C", verified=True, failed_attempts=3),
+        TaskOutcome("t2", "C", verified=True, failed_attempts=1),
+    ]
+    assert score(outcomes)["C"].to_row()["failed_attempts_per_verified"] == 2.0
+
+
+def test_unreported_sandbox_cost_is_a_dash_not_zero():
+    row = score([TaskOutcome("t1", "C", verified=True)])["C"].to_row()
+    assert row["sandbox_cost_usd"] == "—"
+    row = score([TaskOutcome("t1", "C", verified=True, sandbox_cost=0.5)])["C"].to_row()
+    assert row["sandbox_cost_usd"] == 0.5
+
+
+def test_nothing_verified_has_no_time_or_token_figures():
+    row = score([TaskOutcome("t1", "C", verified=False, error_code="GATE_TESTS_RED")])["C"].to_row()
+    assert row["median_time_to_verified_s"] == "—" and row["tokens_per_verified"] == "—"
+
+
+def test_the_table_says_what_it_was_measured_on():
+    live = render(score([TaskOutcome("t1", "C", verified=True)]), {"live": True})
+    local = render(score([TaskOutcome("t1", "C", verified=True)]), {"live": False, "sandbox": "local"})
+    assert "LIVE — real Nebius" in live
+    assert "NOT LIVE" in local and "not a measurement of the platform" in local
+    assert provenance_line(None).startswith("Executed on: unknown")

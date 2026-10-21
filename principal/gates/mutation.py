@@ -209,16 +209,22 @@ def generate_mutants(source: str, *, line_start: int, line_end: int, cap: int = 
     except SyntaxError:
         return []
 
+    if cap < 1:
+        return []
     total = _count_sites(source, line_start, line_end)
     if total == 0:
         return []
 
     # Even spread across the symbol rather than the first N sites, so a capped
     # run still samples the end of a long function instead of only its guard
-    # clauses.
-    indices = list(range(total)) if total <= cap else [
-        round(i * (total - 1) / (cap - 1)) for i in range(cap)
-    ]
+    # clauses. A budget of one cannot be spread, so it takes the first site
+    # (the spread formula divides by cap - 1).
+    if total <= cap:
+        indices = list(range(total))
+    elif cap == 1:
+        indices = [0]
+    else:
+        indices = [round(i * (total - 1) / (cap - 1)) for i in range(cap)]
 
     mutants: list[Mutant] = []
     seen: set[int] = set()

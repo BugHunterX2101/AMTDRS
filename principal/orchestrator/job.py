@@ -29,9 +29,18 @@ from principal.gates.characterise import (
     establish_safety_net,
     needs_characterisation,
 )
+from principal.gates.impact import (
+    CallRef,
+    Finding,
+    ImpactInputs,
+    ImpactReport,
+    analyse_impact,
+    parse_coverage,
+)
 from principal.gates.security import check_security
+from principal.gates.strength import StrengthResult, plan_mutants, run_strength_audit
 from principal.graph.build import build as build_graph
-from principal.graph.build import ingest_coverage
+from principal.graph.build import ingest_coverage, module_name
 from principal.graph.embed import ConventionIndex
 from principal.graph.languages import lang_of
 from principal.graph.parse import CallSite, parse_source
@@ -41,8 +50,16 @@ from principal.orchestrator.budget import exceeds_discard_cap
 from principal.orchestrator.cleanup import plan_cleanup
 from principal.orchestrator.ordering import order_waves
 from principal.orchestrator.scheduler import TaskContext, WaveRunner
+from principal.orchestrator.signals import (
+    gather_signals,
+    last_event,
+)
+from principal.orchestrator.signals import (
+    last_characterisation_result as _last_characterisation_result,
+)
+from principal.outcome import Outcome, classify
 from principal.publish.github import open_pr
-from principal.publish.prbody import render_fallback_body
+from principal.publish.prbody import render_fallback_body, render_verification_block
 from principal.routines.registry import routine_for
 from principal.routines.relocation import moved_symbols
 from principal.sandbox.baseline import build_baseline, clone_source, ensure_snapshot
@@ -578,6 +595,11 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         events.emit(job_id, "job.stopped", {"reason": "integration run did not pass"})
         raise _Stopped("integration red")
 
+    # A task dropped at integration changed state in the store after `tasks` was read.
+    # Everything below, including the report's "not migrated" list, must see that.
+    tasks = store.tasks_of(job_id)
+    discarded = [t for t in tasks if t.state == "discarded"]
+
     snapshot = await ensure_snapshot(job.repo_url, job.commit_sha, settings.principal_snapshots_dir)
     touched_files = {t.target_file for t in verified}
     declared_removals = {r for t in verified for r in t.declared_removals}
@@ -627,14 +649,42 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
             store.update_job(job_id, state="NoPR", stop_reason=security.verdict.reason, finished_at=now())
         raise _Stopped(security.verdict.reason)
 
+    # Gates 4b and 4c. Both are skipped for the ungated benchmark arm, which exists
+    # to measure what the pipeline adds and must not borrow its verdicts.
+    baseline_tree: dict[str, str] = {}
+    patched_tree: dict[str, str] = {}
+    if not settings.bench_accept_without_gates:
+        baseline_tree, patched_tree, unapplied = _patched_trees(snapshot, verified, diffs_by_task)
+        impact = _check_impact(
+            store, events, job_id, graph_id, radius, tasks, verified, baseline_tree, patched_tree,
+            unapplied, baseline_cov,
+        )
+        if impact.blocked:
+            first, rest = impact.blocks[0], len(impact.blocks) - 1
+            reason = f"blast-radius check failed: {first.detail}" + (f" (+{rest} more)" if rest else "")
+            with events.transaction(job_id, "job.stopped", {"reason": reason}):
+                store.update_job(job_id, state="NoPR", stop_reason=reason, finished_at=now())
+            raise _Stopped(reason)
+        if settings.strength_audit_enabled:
+            await _audit_strength(
+                sandbox, events, settings, job_id, run, baseline_tree, patched_tree, touched_files,
+                radius.tests,
+            )
+
     with events.transaction(job_id, "job.state", {"state": "Publishing"}):
         store.update_job(job_id, state="Publishing")
 
-    uncovered = _uncovered_files(store, graph_id, touched_files)
-    characterisation_only = _characterisation_only_files(store, graph_id, touched_files)
+    # Classified a moment before `Done` is written so the verdict can go into the
+    # pull request body, from the same signals a stored run is classified from.
+    signals = gather_signals(store, job_id, state="Done")
+    uncovered = signals.uncovered
+    characterisation_only = signals.characterisation_only
     characterisation_result = (
         _last_characterisation_result(store, job_id) if characterisation_only else None
     )
+    verdict = classify(signals)
+    assert verdict is not None  # state="Done" is terminal
+    verification_block = render_verification_block(verdict, signals.impact, signals.strength)
     report = await compose_report(
         models, job_id=job_id, goal=job.goal,
         verified=[
@@ -686,16 +736,21 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
         store, settings, job_id, graph_id, job.target_fqn or "",
     )
     publish_diffs = [*diffs, characterisation_diff] if characterisation_diff else diffs
+    # The verification block is deterministic and sits above the model's prose, so a
+    # reviewer reads what was and was not checked before reading what the model
+    # says it did. An UNVERIFIED draft is labelled in its title too: a list of PRs
+    # is read far more often than any single body.
+    title = report.title if verdict.outcome is Outcome.VERIFIED else f"[{verdict.outcome.value}] {report.title}"
     try:
         pr_url = await open_pr(
-            job=job, title=report.title,
-            body=report.body or render_fallback_body(
+            job=job, title=title,
+            body=verification_block + "\n\n" + (report.body or render_fallback_body(
                 job.goal, verified, discarded, uncovered,
                 characterisation_only=characterisation_only,
                 characterisation_result=characterisation_result,
                 relocated_symbols=relocated,
                 unresolved_call_sites=radius.unresolved,
-            ),
+            )),
             diffs=publish_diffs, settings=settings,
         )
     except PrincipalError as exc:
@@ -820,7 +875,12 @@ def _reextract_exports(
             continue
         try:
             parsed = parse_source(text.encode("utf-8"), lang, target_file)
-            out[target_file] = {d.name for d in parsed.definitions if d.exported}
+            # The baseline side is stored as module.parent.name. Bare names here
+            # made every symbol of every touched file look removed.
+            module = module_name(target_file, lang)
+            out[target_file] = {
+                ".".join(filter(None, (module, d.parent, d.name))) for d in parsed.definitions if d.exported
+            }
         except Exception:  # noqa: BLE001
             out[target_file] = set()
     return out
@@ -852,6 +912,133 @@ def _security_scan_texts(
         before[path] = original
         after[path], _ = _apply_task_diffs(original, by_file.get(path, []), diffs_by_task)
     return before, after
+
+
+def _read_py_tree(snapshot: Path) -> dict[str, str]:
+    """Every Python file in the snapshot, by repo-relative path."""
+    tree: dict[str, str] = {}
+    for path in snapshot.rglob("*.py"):
+        if any(part in _SKIP_DIRS for part in path.parts):
+            continue
+        try:
+            tree[path.relative_to(snapshot).as_posix()] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    return tree
+
+
+def _patched_trees(
+    snapshot: Path, verified: list[Task], diffs_by_task: dict[str, str],
+) -> tuple[dict[str, str], dict[str, str], list[str]]:
+    """(baseline tree, patched tree, files whose verified patch could not be re-applied).
+
+    The patched tree is rebuilt on the host from the same diffs integration ran, so
+    the gates below read exactly what the sandbox tested. A file whose diff cannot
+    be re-applied is returned rather than silently left at its baseline text:
+    comparing callers against an interface the patch did change would produce a
+    confident, wrong answer.
+    """
+    baseline = _read_py_tree(snapshot)
+    patched = dict(baseline)
+    by_file: dict[str, list[Task]] = {}
+    for t in verified:
+        by_file.setdefault(t.target_file, []).append(t)
+    unapplied: list[str] = []
+    for path, group in sorted(by_file.items()):
+        text, applied = _apply_task_diffs(baseline.get(path, ""), group, diffs_by_task)
+        patched[path] = text
+        if not applied:
+            unapplied.append(path)
+    return baseline, patched, unapplied
+
+
+def _consumers(store: Store, graph_id: str, touched: set[str]) -> dict[tuple[str, str], list[str]]:
+    """(file, function name) -> the non-test files that call it, for the functions
+    the patch touched. Lets the gate say who is exposed if one of them changed shape."""
+    functions = {s.id: s for s in store.symbols_in_files(graph_id, touched) if s.kind == "function"}
+    if not functions:
+        return {}
+    edges = store.callers_of(graph_id, set(functions))
+    is_test = store.test_flags_of(graph_id, {e.path for e in edges})
+    out: dict[tuple[str, str], list[str]] = {}
+    for e in edges:
+        sym = functions.get(e.callee_symbol_id) if e.callee_symbol_id is not None else None
+        if sym is None or is_test.get(e.path, False):
+            continue
+        users = out.setdefault((sym.path, sym.name), [])
+        if e.path not in users:
+            users.append(e.path)
+    return out
+
+
+def _check_impact(
+    store: Store, events: EventLog, job_id: str, graph_id: str, radius: BlastRadius,
+    tasks: list[Task], verified: list[Task], baseline_tree: dict[str, str],
+    patched_tree: dict[str, str], unapplied: list[str], baseline_cov_text: str | None,
+) -> ImpactReport:
+    """Gate 4b: what the patch actually did, against what the blast radius predicted.
+    Local and deterministic; the result is recorded whether or not it blocks."""
+    target = radius.target
+    callers = store.callers_of(graph_id, {target.id})
+    is_test = store.test_flags_of(graph_id, {c.path for c in callers})
+    # Tests that still call the old form are the integration run's business: a
+    # patch may not edit them (gate 1), so they cannot be part of "the plan".
+    static_sites = [
+        CallRef(c.path, c.line, c.callee_name) for c in callers
+        if c.confidence == "static" and not is_test.get(c.path, False)
+    ]
+    unresolved = [CallRef(str(u["file"]), int(u["line"] or 0), str(u["name"])) for u in radius.unresolved]
+    plan = last_event(store, job_id, "plan.ready") or {}
+    touched = {t.target_file for t in verified}
+
+    report = analyse_impact(ImpactInputs(
+        target_name=target.name, target_path=target.path, target_kind=target.kind,
+        target_parent=target.fqn.split(".")[-2] if target.kind == "method" else None,
+        radius_files=set(radius.files),
+        planned_files={t.target_file for t in tasks if t.kind == "refactor"},
+        unhandled=[str(u) for u in plan.get("unhandled", [])],
+        static_call_sites=static_sites, unresolved=unresolved,
+        baseline_tree=baseline_tree, patched_tree=patched_tree, touched_files=touched,
+        declared_removals={r for t in verified for r in t.declared_removals},
+        baseline_coverage=parse_coverage(baseline_cov_text or "{}"),
+        discarded_files={t.target_file for t in tasks if t.state == "discarded"},
+        consumers=_consumers(store, graph_id, touched),
+    ))
+    for path in unapplied:
+        report.findings.append(Finding(
+            "uncheckable", "block",
+            f"the verified patch to {path} could not be re-applied on the host, so what it changed"
+            " cannot be compared against its callers", file=path,
+        ))
+    with events.transaction(job_id, "impact.result", report.to_payload()):
+        pass
+    return report
+
+
+async def _audit_strength(
+    sandbox: SandboxClient, events: EventLog, settings: Settings, job_id: str, run: object,
+    baseline_tree: dict[str, str], patched_tree: dict[str, str], touched: set[str],
+    nodeids: list[str],
+) -> StrengthResult:
+    """Gate 4c: would the tests that passed have noticed a mistake in the lines that
+    changed. Informs the outcome; never raises and never decides it on its own."""
+    image_uuid = getattr(run, "image", None)
+    if not image_uuid:
+        result = StrengthResult(status="unavailable", floor=settings.strength_floor,
+                                reason="the integration run left no image to audit")
+    else:
+        planned = plan_mutants(baseline_tree, patched_tree, touched, cap=settings.strength_audit_cap)
+
+        def on_op(op_id: str) -> None:
+            events.emit(job_id, "strength.operation", {"operation_id": op_id})
+
+        result = await run_strength_audit(
+            sandbox, await sandbox.from_uuid(image_uuid), planned, nodeids, floor=settings.strength_floor,
+            timeout_s=max(900, settings.sandbox_timeout_s * 2), on_operation=on_op,
+        )
+    with events.transaction(job_id, "strength.result", result.to_payload()):
+        pass
+    return result
 
 
 def _new_file_diff(rel_path: str, content: str) -> str:
@@ -903,57 +1090,3 @@ def _characterisation_diff(
         return None
     content = (settings.run_dir(job_id) / art["path"]).read_text(encoding="utf-8")
     return _new_file_diff(test_path, content)
-
-
-def _uncovered_files(store: Store, graph_id: str, files: set[str]) -> list[str]:
-    out = []
-    for f in sorted(files):
-        symbols = store.symbols_in_files(graph_id, {f})
-        if not symbols:
-            out.append(f)
-            continue
-        covered = store.tests_covering(graph_id, {s.id for s in symbols})
-        if not covered:
-            out.append(f)
-    return out
-
-
-def _characterisation_only_files(store: Store, graph_id: str, files: set[str]) -> list[str]:
-    """Files whose only test coverage is a generated characterisation test.
-
-    `_uncovered_files` cannot tell this apart from real coverage: a
-    characterisation edge satisfies "has some covering test" exactly like a
-    hand-written one, by construction (gate 3 has to treat them identically or
-    the whole feature is pointless). But characterise.py's own rule 4 says a
-    change verified only by generated tests must be *reported* as such, not
-    presented as ordinarily covered — and nothing upstream of the PR body ever
-    made that distinction, so it silently never happened. This is what closes
-    that gap: the one place that still has `source` on every test_edge row.
-    """
-    out: list[str] = []
-    for f in sorted(files):
-        symbols = store.symbols_in_files(graph_id, {f})
-        if not symbols:
-            continue  # already reported as uncovered
-        covered = store.tests_covering(graph_id, {s.id for s in symbols})
-        if not covered:
-            continue  # already reported as uncovered
-        if {row["source"] for row in covered} == {"characterisation"}:
-            out.append(f)
-    return out
-
-
-def _last_characterisation_result(store: Store, job_id: str) -> dict | None:
-    """The mutation score behind a characterisation-only file, if the job ran
-    that phase. Read from the event log rather than a dedicated row: the
-    result was already published there for the live console, and duplicating
-    it into another table would just be a second place for the two to drift
-    apart."""
-    row = store.q1(
-        "SELECT payload FROM event WHERE job_id = ? AND kind = 'characterise.result'"
-        " ORDER BY seq DESC LIMIT 1",
-        (job_id,),
-    )
-    if row is None:
-        return None
-    return json.loads(row["payload"])

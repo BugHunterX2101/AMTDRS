@@ -48,6 +48,10 @@ class ModelClient:
     retries and accounting. One method, so no caller has to remember any of it.
     """
 
+    # Provenance label. A subclass that does not call Token Factory overrides
+    # this, so a result can never be presented as live when it was not.
+    execution_mode = "live"
+
     def __init__(
         self,
         *,

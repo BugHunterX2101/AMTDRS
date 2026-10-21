@@ -21,3 +21,8 @@ dashboard/dist/
 
 # Local Claude Code session state, not project content.
 .claude/
+.claude-flow/
+.swarm/
+
+# Build artifact of `pip install -e .`
+*.egg-info/

@@ -37,6 +37,15 @@ async def run_tests_gate(sandbox, c0_image, diff_text: str, nodeids: list[str], 
                              on_operation=on_operation)
     if run.apply_failed:
         return Verdict.fail(VerdictKind.SYNTAX, "syntax", "git apply rejected the diff on the real tree"), run
+    if run.infrastructure:
+        # A run the platform cut short is not a red suite. Reporting it as one
+        # would discard a patch that was never actually evaluated, and would put a
+        # platform fault into the code-quality numbers.
+        return Verdict.fail(
+            VerdictKind.INFRASTRUCTURE, "infrastructure",
+            f"the sandbox run did not complete (exit {run.exit_code}); this is inconclusive and"
+            " is not evidence against the patch",
+        ), run
     if run.green:
         return Verdict.ok_(), run
     return Verdict.fail(

@@ -13,7 +13,7 @@ Built for the **[Nebius x NVIDIA Global AI Hackathon 2026](https://nebiusglobala
 | **Repository** | [github.com/BugHunterX2101/AMTDRS](https://github.com/BugHunterX2101/AMTDRS) |
 | **Live demo** | **[amtdrs.onrender.com](https://amtdrs.onrender.com)** — landing page at `/`, operator console at `/app/`; baseline, code graph and blast radius run with zero credentials against the bundled fixture; free-tier cold start after 15 min idle |
 | **Demo video** | *(3 minutes — see [`docs/DEMO_VIDEO.md`](docs/DEMO_VIDEO.md) for the shot list)* |
-| **Verification** | `pytest -q` → 216 passed · `ruff check` → clean · `lint-imports` → 3/3 contracts held |
+| **Verification** | `pytest -q` → 388 passed · `ruff check` → clean · `lint-imports` → 3/3 contracts held |
 
 ---
 
@@ -115,6 +115,22 @@ Gates 1 and 2 never touch a sandbox. Most bad candidates die there, which is exa
 **Fail closed. No green test, no PR.**
 
 `NoPR` is a success state, not a failure state. If Principal cannot verify the change, it stops and publishes a report explaining precisely where it stopped and what it tried.
+
+### What a finished run tells you
+
+Green tests are necessary, not sufficient, so after gate 4 two further checks run on the integrated patch set, and every finished run is classified into exactly one outcome (`principal/outcome.py`, a pure function of the stored record):
+
+| Outcome | Meaning | Offered |
+|---|---|---|
+| **VERIFIED** | the tests pass and every check that ran came back clean | draft PR |
+| **UNVERIFIED** | no definite defect, but something is still open: a call site no test exercises, tests that missed injected faults in the changed lines, a partial migration, or nothing could be checked | draft PR flagged for a human, or nothing |
+| **FAILED** | a check found a definite defect (the patch is incompatible with code outside the files it changed, the patches fail together, or it introduces a security finding) | nothing |
+| **ERROR** | the platform failed, which says nothing about the patch and is never counted against it | nothing |
+
+- **Blast-radius check** (`gates/impact.py`) compares what the patch changed with what the graph says it should have reached: call sites, files outside the radius, and dynamic paths (`getattr`, registries) that no test exercises.
+- **Strength audit** (`gates/strength.py`) injects small deliberate faults into only the changed lines and re-runs the covering tests. It is a measurement, not a proof of equivalence, and a run that could not be measured says so instead of defaulting to a flattering score.
+
+Both checks run in the sandbox and neither involves a model. Every finished run has an **evidence bundle** (`GET /jobs/{id}/evidence.zip`): the verdict, each gate's result, every attempt's diff and test log with SHA-256 hashes (a file changed after the run is flagged), and the command that reproduces the run.
 
 ---
 
@@ -249,6 +265,7 @@ flowchart TD
     subgraph INTEG["5. INTEGRATE"]
         direction TB
         N1["all accepted patches together,\nfull suite, gate 4"] --> N2["API delta · coverage floor ·\ntest count invariant"]
+        N2 --> N3["blast-radius check ·\nstrength audit → outcome"]
     end
     INTEG -->|"green"| PR["Draft pull request\n+ evidence table"]
     INTEG -->|"red / behaviour check fails"| NOPR2["NoPR report\n(a success state)"]
@@ -535,10 +552,12 @@ With no `NEBIUS_API_KEY` set, that will:
 
 Set a key and the same command runs through to `Done` or `NoPR`.
 
+`--fake-sandbox` is the only way Principal runs without a real sandbox. Without it, missing credentials are a hard error (`refusing to run: …`), never a silent downgrade, and a `--fake-sandbox` run prints `mode: LOCAL STAND-IN — not a measurement of the Nebius platform`. The same label is recorded on the job, shown as a **NOT LIVE** badge in the console, and written at the top of the evidence bundle and benchmark report. A run is **LIVE** only when both the sandbox and the inference were real.
+
 And the tests:
 
 ```bash
-make test          # or: pytest — 216 tests, unit + integration
+make test          # or: pytest — 388 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -594,7 +613,10 @@ principal serve --host 0.0.0.0 --port 8000
 |---|---|---|
 | `GET` | `/healthz` | liveness + what the process is actually configured to talk to |
 | `POST` | `/jobs` | start a job — returns `202` and an SSE stream URL |
-| `GET` | `/jobs/{id}` | state, counts, token budget, live rate-limit headroom |
+| `GET` | `/jobs/{id}` | state, counts, token budget, live rate-limit headroom, and — once finished — the `outcome` and `provenance` (LIVE or not) |
+| `GET` | `/jobs/{id}/evidence` | the evidence bundle as JSON: verdict, gates, usage, attempts, artifact hashes, reproduce command |
+| `GET` | `/jobs/{id}/evidence.md` | the same, as a readable report |
+| `GET` | `/jobs/{id}/evidence.zip` | the report plus every diff, test log and coverage artifact, with a SHA-256 manifest |
 | `GET` | `/jobs/{id}/events` | SSE, resumable via `Last-Event-ID` |
 | `GET` | `/jobs/{id}/tree` | the sandbox fork tree |
 | `GET` | `/artifacts/{id}` | any diff, test log or report by id |
@@ -631,7 +653,11 @@ cd dashboard && npm install && npm run build
 
 The console renders:
 
+- a **LIVE / NOT LIVE** badge, taken from the job's own recorded provenance
+- three visible steps — choose a target, watch the run, read the verdict
 - the **live fork tree** and per-candidate gate progress
+- the **outcome** (verified, unverified, failed or error) with every open reason, plus the **blast-radius check** and **test strength** panels
+- **evidence downloads** (zip, report, JSON) once the run finishes
 - an **evidence drawer** — diff, test output and coverage delta for any attempt
 - **run economics** and the NoPR report
 - a **cancel** control that stops a job in flight, sandbox operations included
@@ -663,17 +689,22 @@ Two ways to reach them:
 ### Benchmark
 
 ```bash
-make bench
+make eval          # checks credentials, then runs every arm on every task — live only
+make bench         # the same run without the credential check first
 ```
 
 - **Three arms** over the same task set:
   - **A** — single-shot, no gates
   - **B** — single candidate, gates on
   - **C** — full swarm
-- **Three result buckets** — verified / failed on merit / excluded as infrastructure.
-- *Why three and not two:* collapsing a sandbox timeout into "the patch was wrong" is dishonest in both directions — it understates the verified refactor rate **and** hides a platform problem that belongs in the tooling feedback.
+- **Four result buckets** — verified / unverified (tests pass, caveats open) / failed on merit / excluded as infrastructure. Only a run the product itself classifies as VERIFIED counts as a win.
+- **Cost and time columns**, reported as measured: median time to verified, failed attempts per verified result, tokens per verified result, and sandbox cost. Sandbox cost shows `—` when the platform reported no charge (never `0`, which would read as free), and model tokens are counted but not priced.
+- *Why separate buckets:* collapsing a sandbox timeout into "the patch was wrong" is dishonest in both directions — it understates the verified refactor rate **and** hides a platform problem that belongs in the tooling feedback.
+- The harness has **no offline mode**: it refuses to run without real credentials, and `runs/bench/report.md` and `report.json` open with a LIVE / NOT LIVE line.
 
-> Per the honesty note above, the published task set is currently **one pinned task**, not a suite.
+The task set (`bench/tasks.json`) is **two pinned tasks, not a suite**: the bundled `mini_repo` fixture, and a repository whose tests pass but are weak ([`principal-weak-repo`](https://github.com/BugHunterX2101/principal-weak-repo), source in `tests/fixtures/weak_repo`), where a green change can still be unverified. **No benchmark results are published here yet** and none have been run against SWE Atlas; the numbers come from running `make eval` yourself.
+
+What has been run live so far is one end-to-end job on the weak-tests repository, on the real Nemotron models and the real Nebius sandbox. It finished `Done` and was classified **UNVERIFIED** rather than verified: the strength audit detected 0 of 1 injected faults, and `reports.py` reaches the target through `getattr`, which no test exercises. That is a single run, not a rate.
 
 ## Deploying the hosted demo
 

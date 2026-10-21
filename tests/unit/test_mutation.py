@@ -52,6 +52,16 @@ def test_respects_the_cap():
     assert len(mutants) <= 2
 
 
+def test_a_budget_of_one_yields_exactly_one_mutant_rather_than_crashing():
+    """The spread formula divides by cap - 1. The strength audit shares its cap
+    out per line range, so a budget of one is a normal input, not an edge."""
+    assert len(generate_mutants(SOURCE, line_start=1, line_end=7, cap=1)) == 1
+
+
+def test_a_budget_of_zero_yields_nothing():
+    assert generate_mutants(SOURCE, line_start=1, line_end=7, cap=0) == []
+
+
 def test_out_of_range_lines_produce_nothing():
     """A symbol's own line range, never the whole module — mutating outside it
     would measure a suite's sensitivity to code the refactor never touches."""

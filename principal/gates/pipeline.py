@@ -21,6 +21,11 @@ class VerdictKind(str, Enum):
     SECURITY = "security"
     ERROR = "error"
     TIMEOUT = "timeout"
+    # The run could not be completed for a reason that says nothing about the
+    # patch: the sandbox timed out, was killed, or refused the operation. It is
+    # its own kind so that it can never be mistaken for RED, which is a statement
+    # that the patch broke the tests. Inconclusive is not the same as failed.
+    INFRASTRUCTURE = "infrastructure"
     # Gate 5 is differential: it compares findings before against findings after.
     # With no baseline scan there is nothing to subtract, so the gate has no
     # opinion — which is not the same as passing, and must not be recorded as one.

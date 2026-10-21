@@ -59,6 +59,10 @@ class JobStatusResponse(BaseModel):
     rate_limit: RateLimitInfo
     radius: RadiusSummary | None = None
     pr_url: str | None = None
+    # None while the run is going: an unfinished run has no outcome yet.
+    outcome: dict | None = None
+    # Whether this job ran on the real platform or a local stand-in.
+    provenance: dict | None = None
 
 
 class ErrorEnvelope(BaseModel):

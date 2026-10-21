@@ -10,7 +10,34 @@ export function PanelHeader({ children }) {
   );
 }
 
-export function Masthead({ health, connected, jobId, running, onCancel }) {
+/* What this run is actually executing on. A job records its own provenance when
+   it is created, so a finished run keeps the label it was measured under even if
+   the server is later restarted against different backends. Before any job
+   exists it falls back to what /healthz verified at startup. */
+export function runMode(provenance, health) {
+  if (provenance) {
+    if (provenance.live) {
+      return { live: true, label: "LIVE · Nebius sandbox + inference", title: "Every check ran in a real Token Factory sandbox, with real model calls." };
+    }
+    return {
+      live: false,
+      label: `NOT LIVE · sandbox ${provenance.sandbox ?? "unknown"} · inference ${provenance.inference ?? "unknown"}`,
+      title: "A local stand-in or an unconfigured backend was used. These results are not a measurement of the Nebius platform.",
+    };
+  }
+  if (!health) return { live: false, label: "…", title: "" };
+  if (health.live) {
+    return { live: true, label: "LIVE · Nebius verified at startup", title: "Token Factory and Sandboxes both answered a real call when the server started." };
+  }
+  return {
+    live: false,
+    label: health.sandboxes_configured ? "Nebius configured · not verified" : `LOCAL STAND-IN · ${health.sandbox ?? "…"}`,
+    title: "No successful live call has been made yet, so runs here are not a platform measurement.",
+  };
+}
+
+export function Masthead({ health, provenance, connected, jobId, running, onCancel }) {
+  const mode = runMode(provenance, health);
   return (
     <header className="masthead">
       <a href="/" className="home-link" aria-label="Back to the overview page">
@@ -37,8 +64,8 @@ export function Masthead({ health, connected, jobId, running, onCancel }) {
       </div>
       <div className="spacer" />
       <span className="badge nvidia">NVIDIA Nemotron 3</span>
-      <span className={`badge ${health?.sandboxes_configured ? "live" : "off"}`}>
-        {health?.sandboxes_configured ? "Token Factory Sandboxes" : `local · ${health?.sandbox ?? "…"}`}
+      <span className={`badge ${mode.live ? "live" : "warn"}`} title={mode.title}>
+        {mode.label}
       </span>
       {jobId && (
         <span className={`badge ${connected ? "live" : "off"}`}>
@@ -452,7 +479,51 @@ function short(uuid) {
 
 /* ---------------------------------------------------------------- outcome -- */
 
-export function Outcome({ job }) {
+const VERDICT_CLASS = { VERIFIED: "pr", UNVERIFIED: "nopr", FAILED: "aborted", ERROR: "error" };
+const VERDICT_TITLE = {
+  VERIFIED: "Verified",
+  UNVERIFIED: "Unverified — needs a human decision",
+  FAILED: "Failed — a check found a defect",
+  ERROR: "Error — the platform failed, not the patch",
+};
+
+/* The product's own classification, computed server-side from the run record
+   (principal/outcome.py). The browser only displays it; it never re-derives it,
+   so the banner, the evidence bundle and the CLI cannot disagree. */
+function Verdict({ verdict, prUrl }) {
+  return (
+    <div className={`outcome ${VERDICT_CLASS[verdict.outcome] ?? "nopr"}`} role="status">
+      <h2>{VERDICT_TITLE[verdict.outcome] ?? verdict.outcome}</h2>
+      <p>{verdict.headline}</p>
+      {verdict.reasons?.length > 0 && (
+        <ul className="reasons">
+          {verdict.reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <p className="hint" style={{ marginTop: 8 }}>
+        {verdict.pr_offered
+          ? verdict.outcome === "VERIFIED"
+            ? "A draft pull request was opened."
+            : "A draft pull request was opened and flagged for human review."
+          : verdict.outcome === "ERROR"
+          ? "Nothing was offered. This result says nothing about the change itself, so run it again."
+          : "Nothing was offered and the repository is unchanged."}
+      </p>
+      {prUrl && (
+        <p style={{ marginTop: 6 }}>
+          <a href={prUrl} target="_blank" rel="noreferrer">
+            {prUrl}
+          </a>
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function Outcome({ job, verdict }) {
+  if (verdict) return <Verdict verdict={verdict} prUrl={job.prUrl} />;
   if (job.prUrl) {
     return (
       <div className="outcome pr">
@@ -527,6 +598,182 @@ export function Outcome({ job }) {
     );
   }
   return null;
+}
+
+/* ----------------------------------------------------------- impact + strength -- */
+
+const SEVERITY_ORDER = { block: 0, warn: 1, info: 2 };
+
+/* Did the change reach everything it should have, and nothing it should not?
+   Every line here is a field of the impact.result event: nothing is inferred in
+   the browser. */
+export function ImpactPanel({ impact, running }) {
+  if (!impact) {
+    return (
+      <div className="body">
+        <p className="empty">
+          {running
+            ? "After the patches are integrated, the change is compared with the blast radius: files and call sites it should have reached, files it should not have touched, and dynamic paths no test exercises."
+            : "No blast-radius result was recorded for this run — the run ended before integration."}
+        </p>
+      </div>
+    );
+  }
+  const findings = [...(impact.findings || [])]
+    .filter((f) => f.severity !== "info")
+    .sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3));
+  return (
+    <div className="body">
+      <div className="stats" style={{ marginBottom: 12 }}>
+        <Stat k="Files changed" v={`${impact.actual_files?.length ?? 0}/${impact.expected_files?.length ?? 0}`} />
+        <Stat
+          k="Call sites"
+          v={`${impact.call_sites_changed ?? 0}/${impact.expected_call_sites ?? 0}`}
+        />
+      </div>
+      {impact.unexpected_files?.length > 0 && (
+        <div className="kv-line">
+          <span>Outside the radius</span>
+          <span className="mono">{impact.unexpected_files.join(", ")}</span>
+        </div>
+      )}
+      {impact.dynamic_paths?.length > 0 && (
+        <div className="kv-line">
+          <span>Dynamic paths</span>
+          <span className="mono">
+            {impact.dynamic_paths.filter((d) => d.exercised_by_tests).length}/{impact.dynamic_paths.length} exercised
+          </span>
+        </div>
+      )}
+      {findings.length === 0 ? (
+        <p className="hint" style={{ marginTop: 10 }}>
+          No block or warning: every expected call site was updated and nothing outside the radius changed.
+        </p>
+      ) : (
+        <ul className="findings">
+          {findings.map((f, i) => (
+            <li key={i} className={`finding ${f.severity}`}>
+              <span className="sev">{f.severity}</span> {f.detail}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const pct = (x) => (x == null ? "—" : `${Math.round(x * 100)}%`);
+
+/* Would the tests that just passed have noticed a mistake? An injected-fault
+   measurement, labelled as one — never a proof. */
+export function StrengthPanel({ strength, running }) {
+  if (!strength) {
+    return (
+      <div className="body">
+        <p className="empty">
+          {running
+            ? "Once the change passes, small deliberate faults are injected into only the lines it changed and the covering tests are re-run. A fault the tests miss is a located gap."
+            : "No strength audit was recorded for this run."}
+        </p>
+      </div>
+    );
+  }
+  if (strength.status !== "measured") {
+    return (
+      <div className="body">
+        <p className="hint" style={{ color: "var(--amber)" }}>
+          Not measured ({strength.status}){strength.reason ? `: ${strength.reason}` : ""}. This is reported
+          as unmeasured, never as a passing score.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="body">
+      <div className="stats" style={{ marginBottom: 12 }}>
+        <Stat k="Faults detected" v={`${strength.detected}/${strength.detected + strength.survived}`} />
+        <Stat k="Score / floor" v={`${pct(strength.score)} / ${pct(strength.floor)}`} />
+      </div>
+      {strength.below_floor && (
+        <p className="hint" style={{ color: "var(--amber)" }}>
+          Below the floor: the suite may not notice a real mistake in the changed lines.
+        </p>
+      )}
+      {strength.survivors?.length > 0 && (
+        <ul className="findings">
+          {strength.survivors.map((s, i) => (
+            <li key={i} className="finding warn">
+              <span className="sev">missed</span> {s.file}:{s.line} — {s.description}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="hint" style={{ marginTop: 10 }}>{strength.disclaimer}</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ evidence -- */
+
+/* The evidence bundle is built server-side from the stored record. These are
+   plain links, so what is downloaded is exactly what the API serves. */
+export function EvidenceLinks({ jobId, ready }) {
+  if (!jobId) return null;
+  if (!ready) {
+    return (
+      <div className="body">
+        <p className="empty">
+          The evidence bundle — verdict, every gate result, each attempt's diff and test log with
+          hashes, and the exact command to reproduce the run — is available when the run finishes.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="body">
+      <div className="evidence-links">
+        <a className="btn" href={`/jobs/${jobId}/evidence.zip`} download>
+          Download bundle (.zip)
+        </a>
+        <a className="btn" href={`/jobs/${jobId}/evidence.md`} target="_blank" rel="noreferrer">
+          Read report
+        </a>
+        <a className="btn" href={`/jobs/${jobId}/evidence`} target="_blank" rel="noreferrer">
+          JSON
+        </a>
+      </div>
+      <p className="hint" style={{ marginTop: 10 }}>
+        The zip carries a manifest of SHA-256 hashes; each artifact is re-hashed when the bundle is
+        built, so a file changed after the run is flagged rather than trusted.
+      </p>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------- steps -- */
+
+/* Where you are, in three steps. Derived from the same state the pipeline reads. */
+export function Steps({ jobId, state, running }) {
+  const terminal = TERMINAL_STATES.includes(state);
+  const current = !jobId ? 1 : terminal ? 3 : 2;
+  const items = [
+    ["1", "Choose a target", "a repository, commit, symbol and goal"],
+    ["2", running ? "Watching the run" : "Run", "candidates are generated, then checked in sandboxes"],
+    ["3", "Read the verdict", "outcome, evidence and the exact reproduce command"],
+  ];
+  return (
+    <ol className="steps" aria-label="Progress">
+      {items.map(([n, title, sub], i) => (
+        <li key={n} className={i + 1 < current ? "done" : i + 1 === current ? "current" : ""}>
+          <span className="n">{n}</span>
+          <span>
+            <strong>{title}</strong>
+            <small>{sub}</small>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 /* -------------------------------------------------------------------- log -- */

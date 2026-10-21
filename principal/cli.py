@@ -222,6 +222,8 @@ async def _run(args) -> int:
     from principal.models.cache import DiskCache
     from principal.models.client import ModelClient
     from principal.orchestrator.job import run_job
+    from principal.orchestrator.signals import execution_provenance, gather_signals
+    from principal.outcome import classify
 
     settings = get_settings()
     store = Store(settings.principal_db)
@@ -235,21 +237,25 @@ async def _run(args) -> int:
         cache=DiskCache(settings.principal_cache_dir, enabled=settings.principal_model_cache),
     )
 
+    tunables = settings.recorded_tunables()
+    tunables["execution_provenance"] = execution_provenance(sandbox, models, settings)
     job = store.create_job(
         repo_url=args.repo, commit_sha=args.commit, goal=args.goal, target_fqn=args.target,
-        token_budget=settings.token_budget_default, tunables=settings.recorded_tunables(),
-        routine=args.routine,
+        token_budget=settings.token_budget_default, tunables=tunables, routine=args.routine,
     )
     print(f"job {job.id}")
+    if not tunables["execution_provenance"]["live"]:
+        print("mode: LOCAL STAND-IN — not a measurement of the Nebius platform")
 
     printer = asyncio.create_task(_print_events(events, job.id))
     try:
         if args.dry_run:
-            from principal.orchestrator.job import _ingest_and_baseline, _map, _plan
+            from principal.orchestrator.job import _ingest_and_baseline, _map, _plan, _resolve_target
 
             await _ingest_and_baseline(job.id, store, events, sandbox, settings)
             graph_id = await _map(job.id, store, events, settings)
-            await _plan(job.id, store, events, models, graph_id, settings)
+            target = _resolve_target(store, job.id, graph_id)
+            await _plan(job.id, store, events, models, graph_id, target, settings)
         else:
             await run_job(job.id, store=store, events=events, sandbox=sandbox, models=models,
                           settings=settings)
@@ -267,6 +273,10 @@ async def _run(args) -> int:
     assert final is not None
     print(f"\nstate       {final.state}")
     print(f"stop reason {final.stop_reason or '-'}")
+    verdict = classify(gather_signals(store, job.id))
+    if verdict is not None:
+        print(f"outcome     {verdict.outcome.value}")
+        print(f"            {verdict.headline}")
     if final.pr_url:
         print(f"pull request {final.pr_url}")
     store.close()
@@ -302,15 +312,27 @@ async def _print_events(events, job_id: str) -> None:
 
 
 def _make_sandbox(settings: Settings, *, force_fake: bool):
-    if not force_fake and settings.nebius_api_key and settings.nebius_project_id:
+    """Pick the sandbox and say which one, so a missing key cannot masquerade as a live run.
+
+    The in-process FakeSandbox is only ever used when it was asked for with
+    --fake-sandbox; missing credentials are a hard error, not a silent downgrade.
+    """
+    if not force_fake and not (settings.nebius_api_key and settings.nebius_project_id):
+        raise SystemExit(
+            "refusing to run: NEBIUS_API_KEY and NEBIUS_PROJECT_ID must both be set for a live run "
+            "(pass --fake-sandbox to run against the in-process demo sandbox instead)."
+        )
+    if not force_fake:
         from principal.sandbox.client import ContreeSandbox
 
+        print(f"mode: LIVE — Nebius sandbox project {settings.nebius_project_id}", file=sys.stderr)
         return ContreeSandbox(
             api_key=settings.sandbox_key, project_id=settings.nebius_project_id,
             base_url=settings.principal_sandbox_base, max_inflight=settings.max_inflight_ops,
         )
     from principal.sandbox.fake import FakeSandbox
 
+    print("mode: DEMO — in-process FakeSandbox, results are NOT live-verified", file=sys.stderr)
     return FakeSandbox()
 
 

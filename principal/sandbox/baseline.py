@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,8 +42,11 @@ class Baseline:
 
 
 def baseline_tag(repo_url: str, commit_sha: str) -> str:
-    slug = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
-    return f"principal/{slug}@{commit_sha[:12]}"
+    # Token Factory Sandboxes accept only [a-z0-9_-] with ":", "/" and "." as
+    # separators, and the tag must start alphanumeric. "@" is rejected (HTTP 400).
+    slug = repo_url.rstrip("/").split("/")[-1].removesuffix(".git").lower()
+    slug = re.sub(r"[^a-z0-9_-]+", "-", slug).strip("-_") or "repo"
+    return f"principal/{slug}:{commit_sha[:12].lower()}"
 
 
 # Serializes concurrent builds of the same snapshot destination. The hosted

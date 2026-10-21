@@ -140,3 +140,28 @@ def test_api_delta_is_reported_before_coverage():
         baseline_collected=14, integration_collected=9,
     )
     assert "exported symbol disappeared" in result.verdict.reason
+
+
+def test_fqn_exports_from_the_integration_tree_match_the_stored_baseline():
+    """The store holds `module.parent.name`; the re-extraction must speak the same
+    dialect or every symbol of every touched file looks removed. Live run 9 failed
+    this way on a type-hint-only change."""
+    result = evaluate_behaviour(
+        _FakeStore({"src/pricing.py::src.pricing.calc_total", "src/pricing.py::src.pricing.TAX_RATE"}),
+        "g", {"src/pricing.py"}, declared_removals=set(),
+        patched_exports={"src/pricing.py": {"src.pricing.calc_total", "src.pricing.TAX_RATE"}},
+        baseline_coverage_json="{}", integration_coverage_json="{}",
+        baseline_collected=3, integration_collected=3,
+    )
+    assert result.verdict.ok
+
+
+def test_declared_removal_may_name_the_bare_symbol_or_the_fqn():
+    for declared in ({"old_fn"}, {"src.mod.old_fn"}):
+        result = evaluate_behaviour(
+            _FakeStore({"src/mod.py::src.mod.old_fn"}), "g", {"src/mod.py"},
+            declared_removals=declared, patched_exports={"src/mod.py": set()},
+            baseline_coverage_json="{}", integration_coverage_json="{}",
+            baseline_collected=1, integration_collected=1,
+        )
+        assert result.verdict.ok, declared

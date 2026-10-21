@@ -251,12 +251,10 @@ async def _run(args) -> int:
     printer = asyncio.create_task(_print_events(events, job.id))
     try:
         if args.dry_run:
-            from principal.orchestrator.job import _ingest_and_baseline, _map, _plan, _resolve_target
+            from principal.orchestrator.job import run_plan_only
 
-            await _ingest_and_baseline(job.id, store, events, sandbox, settings)
-            graph_id = await _map(job.id, store, events, settings)
-            target = _resolve_target(store, job.id, graph_id)
-            await _plan(job.id, store, events, models, graph_id, target, settings)
+            await run_plan_only(job.id, store=store, events=events, sandbox=sandbox, models=models,
+                                settings=settings)
         else:
             await run_job(job.id, store=store, events=events, sandbox=sandbox, models=models,
                           settings=settings)

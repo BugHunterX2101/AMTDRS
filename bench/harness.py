@@ -123,7 +123,8 @@ async def run_one(
         repairs=sum(1 for a in attempts if a.kind == "repair"),
         pr_opened=bool(final and final.pr_url), note=note or (final.stop_reason if final else ""),
         outcome=verdict.outcome.value if verdict else "", cause=verdict.cause if verdict else "",
-        failed_attempts=sum(1 for a in attempts if a.verdict not in (None, "ok")),
+        # A loser cancelled once another candidate passed was never judged.
+        failed_attempts=sum(1 for a in attempts if a.verdict not in (None, "ok", "cancelled")),
         sandbox_cost=sum(a.cost or 0.0 for a in attempts),
     )
     store.close()

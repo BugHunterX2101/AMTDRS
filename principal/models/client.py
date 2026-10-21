@@ -82,7 +82,12 @@ class ModelClient:
         self.protocol_downgrades = 0
         self.rate_limit_backoffs = 0
         self.budget_refusals = 0
+        # The status endpoint reports refusals per job; the total above is process-wide.
+        self._refusals_by_job: dict[str, int] = {}
         self.rate_headroom = RateHeadroom()
+
+    def refusals_for(self, job_id: str) -> int:
+        return self._refusals_by_job.get(job_id, 0)
 
     def protocol_for(self, model: str) -> Protocol:
         if self.forced_protocol is not None:
@@ -112,6 +117,7 @@ class ModelClient:
                 reserved = True
             except PrincipalError:
                 self.budget_refusals += 1
+                self._refusals_by_job[job_id] = self.refusals_for(job_id) + 1
                 raise
 
         key = cache_key(model, messages, temperature, chosen.value)
@@ -134,7 +140,7 @@ class ModelClient:
             completion, downgraded_to, abandoned = await self._call_with_retries(
                 model, messages, chosen, schema, temperature, max_tokens
             )
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as exc:
             # The reservation was provisional spend against a call that never
             # produced anything billable — refund it, or every failed call
             # (a timeout, a 5xx that exhausts retries, a malformed diff) would
@@ -142,8 +148,19 @@ class ModelClient:
             # A cancelled call is the same: the scheduler cancels the losing
             # candidates once one goes green, and `CancelledError` is not an
             # `Exception`, so it has to be named.
+            # The exception is blank replies the provider generated and billed
+            # before the call gave up: those tokens were spent, so they are
+            # charged and recorded rather than refunded.
             if job_id is not None and reserved:
-                self.budget.release(job_id, estimate)
+                prompt_spent, completion_spent = getattr(exc, "billed_usage", (0, 0))
+                if prompt_spent + completion_spent:
+                    self.budget.settle(job_id, estimate, prompt_spent + completion_spent)
+                    self._record_call(job_id, role, tier, model, Completion(
+                        text="", prompt_tokens=prompt_spent, completion_tokens=completion_spent,
+                        used_reasoning_fallback=False, protocol=chosen,
+                    ), prompt_spent + completion_spent)
+                else:
+                    self.budget.release(job_id, estimate)
             raise
 
         if downgraded_to is not None:
@@ -200,6 +217,12 @@ class ModelClient:
         # provider, so charged to the budget even though no caller sees it.
         abandoned_prompt = 0
         abandoned_completion = 0
+
+        def failed(err: PrincipalError) -> PrincipalError:
+            # Carries the abandoned usage out, so `complete` charges it.
+            err.billed_usage = (abandoned_prompt, abandoned_completion)  # type: ignore[attr-defined]
+            return err
+
         while True:
             attempts += 1
             shape = build_request(current, schema)
@@ -231,22 +254,22 @@ class ModelClient:
                     if attempts <= 3:
                         await self._backoff(attempts, retry_after=_retry_after(exc))
                         continue
-                    raise PrincipalError(Code.MODEL_RATE_LIMITED, str(exc)) from exc
+                    raise failed(PrincipalError(Code.MODEL_RATE_LIMITED, str(exc))) from exc
                 if exc.status_code >= 500 and attempts <= 3:
                     await self._backoff(attempts, retry_after=_retry_after(exc))
                     continue
-                raise PrincipalError(Code.MODEL_EMPTY_RESPONSE, f"HTTP {exc.status_code}: {exc}") from exc
+                raise failed(PrincipalError(Code.MODEL_EMPTY_RESPONSE, f"HTTP {exc.status_code}: {exc}")) from exc
             except RateLimitError as exc:
                 self.rate_limit_backoffs += 1
                 if attempts <= 3:
                     await self._backoff(attempts, retry_after=_retry_after(exc))
                     continue
-                raise PrincipalError(Code.MODEL_RATE_LIMITED, str(exc)) from exc
+                raise failed(PrincipalError(Code.MODEL_RATE_LIMITED, str(exc))) from exc
             except (APITimeoutError, httpx.TimeoutException) as exc:
                 if attempts <= 3:
                     await self._backoff(attempts)
                     continue
-                raise PrincipalError(Code.MODEL_EMPTY_RESPONSE, f"timeout: {exc}") from exc
+                raise failed(PrincipalError(Code.MODEL_EMPTY_RESPONSE, f"timeout: {exc}")) from exc
 
             message = parsed.choices[0].message
             raw = extract_structured(message, current, schema)
@@ -268,7 +291,7 @@ class ModelClient:
                 if attempts <= 3:
                     await self._backoff(attempts, base=0.5)
                     continue
-                raise ModelEmptyResponse(model)
+                raise failed(ModelEmptyResponse(model))
 
             completion = Completion(
                 text=raw, prompt_tokens=int(usage.prompt_tokens) if usage else 0,

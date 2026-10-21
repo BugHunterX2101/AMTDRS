@@ -27,8 +27,8 @@ const GATES = [
     where: "Token Factory Sandbox",
     cost: "seconds",
     kind: "sandbox",
-    body: "Only the tests that the code graph's tests relation says actually exercise the changed file are run — not the full suite, in every one of up to 8 concurrent forks. That's the difference between a 20-minute job and a two-hour one. A candidate that fails gets at most two repair attempts with the stack trace (not the original goal) fed back in, then it's discarded silently.",
-    reject: "Rejects: any non-zero `pytest` / `vitest` exit code for the covered tests.",
+    body: "Only the tests that the code graph's tests relation says actually exercise the changed file are run — not the full suite — in each fork, with up to 8 tasks racing 3 candidates apiece at once by default. If no candidate for a task passes, it gets at most two repair attempts with the failing test's stack trace (not the original goal) fed back in; after that the task is discarded, and the discard and its reason are recorded in the run's evidence.",
+    reject: "Rejects: any non-zero `pytest` exit code for the covered tests.",
   },
   {
     n: 4,
@@ -36,7 +36,7 @@ const GATES = [
     where: "Token Factory Sandbox · once",
     cost: "seconds",
     kind: "sandbox",
-    body: "Surviving patches pass in isolation, but patches that each pass alone can still conflict with each other. Every accepted patch is applied together in dependency order onto a fresh fork of the green baseline, and the entire suite runs exactly once, for real. Only if that run is green does the orchestrator — never an agent — open the draft PR with a token no model ever holds.",
+    body: "Surviving patches pass in isolation, but patches that each pass alone can still conflict with each other. Every accepted patch is applied together in dependency order onto a fresh fork of the green baseline, and the entire suite runs for real. If one patch conflicts, it is dropped and the run is repeated once — never more. Only if that run is green does the orchestrator — never an agent — open the draft PR with a token no model ever holds.",
     reject: "Rejects: any regression introduced by combining otherwise-green patches.",
   },
   {

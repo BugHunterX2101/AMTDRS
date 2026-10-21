@@ -111,6 +111,59 @@ async def test_a_call_that_fails_costs_nothing_and_records_nothing(store, events
     assert store.get_job(job_id).tokens_spent == 0, "the reservation must be refunded"
 
 
+async def test_blank_replies_that_were_billed_are_charged_when_the_call_finally_fails(
+    store, events, job_id, monkeypatch,
+):
+    """A reply with no text was still generated and billed. When every retry comes
+    back blank the call fails, and refunding the whole reservation then hid every
+    token those replies cost."""
+    from types import SimpleNamespace
+
+    client = ModelClient(store=store, base_url="http://invalid.test/v1/", api_key="k",
+                         model_ids=MODELS, capability={}, events=events)
+
+    async def no_wait(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(client, "_backoff", no_wait)
+    blank = SimpleNamespace(
+        headers={},
+        parse=lambda: SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="", reasoning_content=None,
+                                                             tool_calls=None))],
+            usage=SimpleNamespace(prompt_tokens=50, completion_tokens=7),
+        ),
+    )
+
+    async def create(**kwargs):
+        return blank
+
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        with_raw_response=SimpleNamespace(create=create))))
+
+    with pytest.raises(PrincipalError) as err:
+        await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    assert err.value.code is Code.MODEL_EMPTY_RESPONSE
+    [call] = _calls(store, job_id)
+    assert call["role"] == "coder" and call["billed_tokens"] == 4 * 57
+    assert store.get_job(job_id).tokens_spent == 4 * 57
+
+
+async def test_budget_refusals_are_counted_per_job(store, events):
+    small = store.create_job(repo_url="x", commit_sha="deadbeef", goal="g", target_fqn=None,
+                             token_budget=10, tunables={}).id
+    other = store.create_job(repo_url="x", commit_sha="deadbeef", goal="g", target_fqn=None,
+                             token_budget=1_000_000, tunables={}).id
+    client = _client(store, events)
+
+    with pytest.raises(PrincipalError):
+        await client.complete(Tier.NANO, MESSAGES, job_id=small, role="coder")
+
+    assert client.refusals_for(small) == 1
+    assert client.refusals_for(other) == 0
+
+
 async def test_a_call_with_no_job_is_not_recorded(store, events):
     client = _client(store, events)
     await client.complete(Tier.NANO, MESSAGES, role="probe")

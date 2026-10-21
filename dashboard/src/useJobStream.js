@@ -102,6 +102,7 @@ function reduce(s, ev) {
             gate: p.gate,
             reason: p.reason,
             artifactId: p.artifact_id,
+            diffArtifactId: p.diff_artifact_id,
             operationId: p.operation_id,
             failing: p.failing || [],
           },
@@ -148,7 +149,7 @@ function reduce(s, ev) {
     }
 
     case "cleanup.result":
-      return { ...s, cleanup: { ...s.cleanup, orphansFound: p.orphans_found } };
+      return { ...s, cleanup: { ...s.cleanup, orphansFound: p.orphans_found, removed: p.removed } };
 
     case "cleanup.skipped":
       return { ...s, cleanup: { ...s.cleanup, skipped: true, reason: p.reason } };
@@ -233,9 +234,10 @@ export function useJobStream(jobId) {
       }
     };
 
-    // Named SSE events do not reach onmessage, and the kinds are open-ended, so
-    // every listener goes through one handler registered per kind we know about
-    // plus a catch-all for anything the server adds later.
+    // Named SSE events do not reach onmessage, and EventSource has no catch-all
+    // for named events, so a kind the server adds must be added to this list
+    // too. `model.call` is left out on purpose: one per model call would flood
+    // the log, and the evidence bundle itemises them.
     const handle = (kind) => (e) => {
       let payload = {};
       try {
@@ -251,7 +253,7 @@ export function useJobStream(jobId) {
       "job.state", "job.stopped", "baseline.operation", "baseline.ready",
       "graph.built", "radius.computed", "characterise.operation",
       "characterise.result", "characterise.rebaselined", "plan.ready", "attempt.started",
-      "attempt.verdict", "repair.classified", "repair.test_expectation",
+      "attempt.verdict", "repair.classified", "repair.test_expectation", "test_selection.fallback",
       "task.settled", "cleanup.planned", "cleanup.tasks_created",
       "cleanup.operation", "cleanup.result", "cleanup.skipped",
       "integration.operation", "integration.conflict", "integration.result",

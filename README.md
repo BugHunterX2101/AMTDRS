@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **406 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-21**: `pytest -q` → **425 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -168,6 +168,13 @@ That is a single run, not a rate. Principal produced a change whose tests pass, 
 - Outcome **UNVERIFIED**, state `NoPR`: the planner (Ultra) split the goal into **6 tasks**, **4 settled** with a winning candidate that passed the local tests, **2 were discarded** after Nano and Super both failed to produce a usable diff, and 2 of 6 exceeds the 30% discard cap, so the job stopped with the repository unchanged. **It did not reach VERIFIED.**
 - **The ledger reconciles with many cancelled candidates in play: 58,409 tokens charged, 58,409 attributed, 0 unattributed.** Most failures were `DIFF_UNPARSEABLE` (no `<<<DIFF … DIFF>>>` block in the reply); at least one Nano reply used 2,985 of its 3,000-token cap, which may be truncation, though this run does not prove it.
 - Three live runs on two repositories now exist: none is VERIFIED, and the first run's tests passed but could not cover a dynamic call. This is evidence about the pipeline's honesty, **not** a claim that it succeeds on this task.
+
+**A fourth live run, same `mini_repo` goal, after the diff-parser fix** (a reply ending its block with an indented ` DIFF>>>` or a bare `>>>` is now read; hunk matching is unchanged):
+
+- State **Done**, outcome **UNVERIFIED**. The planner split the goal into **7 tasks**: **5 verified**, **2 discarded** (2 of 7 is under the 30% cap, so the job went on to integration). Integration **passed**, security found **0 introduced** findings, and the strength audit detected **8 of 10** injected faults (score 80%, floor 60%).
+- **It is not VERIFIED, and should not be.** One of the two discarded tasks was `src/auth/session.py`, the file that defines `create()`. The five call sites now pass `ttl` by keyword, which the old signature still accepts, but `ttl` is **not** keyword-only. The other discarded task left `src/legacy/compat.py` on the old form. Both are listed as open caveats.
+- **The ledger reconciles: 69,748 tokens charged, 69,748 attributed, 0 unattributed, across 21 model calls.** Of the attempts, 5 passed, 2 failed tests, 10 were rejected as unusable diffs and 2 were model errors; 6 have no verdict, which in a finished run means they were cancelled after another candidate won (this run predates recording them as `cancelled`). No pull request was opened, because publishing is not configured on this machine.
+- The reporter's single call used exactly its 2,000-token output cap, so its reply was probably cut off and the deterministic fallback report used instead. That is an inference from the count, not something this run recorded.
 
 ---
 
@@ -555,7 +562,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 406 tests, unit + integration
+make test          # or: pytest — 425 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -813,7 +820,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            406 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            425 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -875,8 +882,8 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **406 tests pass** | `python -m pytest -q` on the working tree | ✅ 406 passed in 225 s |
-| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, run for the previous commit | ✅ all 7 jobs succeeded |
+| **425 tests pass** | `python -m pytest -q` on the working tree | ✅ 425 passed in 264 s |
+| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for an earlier commit | ⚠️ all 7 jobs succeeded then; **not re-checked since** (`gh` is not installed here) |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | ✅ 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | ✅ all checks passed |
 | `principal doctor` output | ran it with credentials unset | ✅ matches the block above, modulo Python version |
@@ -888,6 +895,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **Real run: Done → UNVERIFIED, 0 of 1 faults, 17,822 tokens, $0.0037, real operation ids** | rendered the stored evidence bundle and inspected the trace | ✅ — but that job's provenance reads "unknown" |
 | **Second live run (cache off): UNVERIFIED, no change produced, ledger 26,711 charged = 26,711 attributed** | read `principal.db` read-only: `job.tokens_spent` against the sum of `model.call.billed_tokens`, plus the per-role models | ✅ one run; the outcome differs from the first run on the same goal, so neither is a rate |
 | **Third live run (mini_repo, cache off): UNVERIFIED, 4 of 6 tasks settled, 2 discarded, ledger 58,409 = 58,409** | same read-only ledger query; the task states and attempt verdicts from `principal.db` | ✅ one run; not VERIFIED, and the truncation explanation for the diff failures is a hypothesis, not a finding |
+| **Fourth live run (mini_repo, after the parser fix): Done → UNVERIFIED, 5 of 7 verified, `session.py` discarded, 8 of 10 faults, ledger 69,748 = 69,748** | same read-only query of `principal.db`, job `01M5FQ9Y8TMEPXYE86H408HMSS` | ✅ one run; not VERIFIED because the definition itself was not changed |
 | **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard | ✅ matches 2026-10-21 |
 | **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card | ✅ (the card is inconsistent on experts per token, so that is not claimed) |
 | **Rate limits: 60 RPM, 400k TPM, +20% / 15 min at ≥80%, 20× ceiling** | Nebius rate-limit docs (via search of the docs) | ✅ |

@@ -6,7 +6,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sse_starlette.sse import EventSourceResponse
 
 from principal.api.schemas import (
@@ -19,12 +19,11 @@ from principal.api.schemas import (
     RateLimitInfo,
 )
 from principal.api.stream import job_event_stream
-from principal.errors import PrincipalError
 from principal.graph.radius import blast_radius, find_target
 from principal.orchestrator.evidence import build_evidence, build_zip, provenance_of, render_markdown
-from principal.orchestrator.job import run_job
+from principal.orchestrator.job import run_job, run_plan_only
 from principal.orchestrator.signals import execution_provenance, gather_signals
-from principal.outcome import classify
+from principal.outcome import classify, is_terminal
 
 router = APIRouter()
 
@@ -80,38 +79,23 @@ async def create_job(body: CreateJobRequest, request: Request):
 
     async def _runner() -> None:
         if body.dry_run:
-            await _run_plan_only(job.id, app)
+            await _run_plan_only(job.id, app, settings)
         else:
             await run_job(job.id, store=app.store, events=app.events, sandbox=app.sandbox,
                            models=app.models, settings=settings)
 
+    # Keyed by job, so cancel can stop the coroutine and not only relabel the row.
     task = asyncio.create_task(_runner())
-    app.background_tasks.add(task)
-    task.add_done_callback(app.background_tasks.discard)
+    app.background_tasks[job.id] = task
+    task.add_done_callback(lambda _t, key=job.id: app.background_tasks.pop(key, None))
 
     return CreateJobResponse(job_id=job.id, stream=f"/jobs/{job.id}/events")
 
 
-async def _run_plan_only(job_id: str, app) -> None:
-    from principal.orchestrator.job import (  # noqa: PLC0415
-        _ingest_and_baseline,
-        _map,
-        _plan,
-        _resolve_target,
-    )
-
-    try:
-        await _ingest_and_baseline(job_id, app.store, app.events, app.sandbox, app.settings)
-        graph_id = await _map(job_id, app.store, app.events, app.settings)
-        target = _resolve_target(app.store, job_id, graph_id)
-        await _plan(job_id, app.store, app.events, app.models, graph_id, target, app.settings)
-        with app.events.transaction(job_id, "job.state", {"state": "Done"}) as _:
-            from principal.db.store import now
-            app.store.update_job(job_id, state="Done", stop_reason="dry_run", finished_at=now())
-    except PrincipalError as exc:
-        from principal.db.store import now
-        with app.events.transaction(job_id, "job.state", {"state": "Aborted", "reason": exc.message}):
-            app.store.update_job(job_id, state="Aborted", stop_reason=exc.message, finished_at=now())
+async def _run_plan_only(job_id: str, app, settings) -> None:
+    # `settings` is the per-job copy, so a request's `max_tasks` reaches the planner.
+    await run_plan_only(job_id, store=app.store, events=app.events, sandbox=app.sandbox,
+                        models=app.models, settings=settings)
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
@@ -141,7 +125,7 @@ async def get_job(job_id: str, request: Request):
         counts=JobCounts(tasks=len(tasks), settled=len(settled), verified=len(verified),
                           discarded=len(discarded)),
         budget=JobBudget(limit=job.token_budget, spent=job.tokens_spent,
-                          refusals=app.models.budget_refusals),
+                          refusals=app.models.refusals_for(job_id)),
         rate_limit=RateLimitInfo(remaining_requests=app.models.rate_headroom.remaining_requests,
                                   remaining_tokens=app.models.rate_headroom.remaining_tokens),
         radius=radius, pr_url=job.pr_url,
@@ -228,9 +212,23 @@ async def get_artifact(artifact_id: str, request: Request):
 @router.post("/jobs/{job_id}/cancel", status_code=202)
 async def cancel_job(job_id: str, request: Request):
     app = _state(request)
-    if app.store.get_job(job_id) is None:
+    job = app.store.get_job(job_id)
+    if job is None:
         raise HTTPException(404, "job not found")
+    # A finished run's result is the record. Cancelling it would relabel a Done
+    # run as NoPR "cancelled" after the fact.
+    if is_terminal(job.state):
+        return JSONResponse(status_code=409, content={"error": {
+            "code": "JOB_FINISHED", "message": f"job already finished in state {job.state}",
+            "retryable": False, "job_id": job_id,
+        }})
     from principal.db.store import now
+
+    # Stop the coroutine first. Left running, it went on to write Done or Aborted
+    # over the cancellation below.
+    task = app.background_tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
 
     live = app.store.live_operations(job_id)
     for _attempt_id, op_id in live:

@@ -111,6 +111,13 @@ def classify(s: Signals) -> OutcomeReport | None:
 
 
 def _classify_done(s: Signals) -> OutcomeReport:
+    # A dry run ends in Done after planning. With nothing generated or tested,
+    # "every check that ran came back clean" is vacuously true, not a pass.
+    if s.stop_reason == "dry_run" or not s.verified_tasks:
+        return _unverified(
+            "plan_only", ["no change was generated or tested"],
+            "Unverified: the run stopped after planning, so nothing was checked.",
+        )
     caveats = open_caveats(s)
     pr = bool(s.pr_url)
     if not caveats:

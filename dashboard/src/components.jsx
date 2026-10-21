@@ -86,9 +86,12 @@ export function Masthead({ health, provenance, connected, finished, jobId, runni
 
 /* -------------------------------------------------------------------- form -- */
 
+// The bundled fixture, published as its own commit. A local path cannot be
+// cloned by the live sandbox, so the published commit works both live and on
+// the local stand-in.
 const DEFAULTS = {
-  repo_url: "tests/fixtures/mini_repo",
-  commit_sha: "deadbeef",
+  repo_url: "https://github.com/BugHunterX2101/AMTDRS",
+  commit_sha: "654e86c317d7437218ff3103cdffcd2b9f199a76",
   target_fqn: "src.auth.session.create",
   goal: "Make the ttl parameter keyword-only and update every call site.",
   routine: "interface_evolution",
@@ -224,11 +227,14 @@ function compact(n) {
 
    Every number here comes from a real field: budget from GET /jobs/{id},
    gate names from the attempt.verdict events. Nothing is modelled. */
-const FREE_GATES = new Set(["scope", "syntax"]);
+// Every gate a candidate can stop at without a sandbox: the two local gates, a
+// reply with no usable diff, and a model call that failed outright.
+const FREE_GATES = new Set(["scope", "syntax", "diffparse", "model"]);
 
 export function Economics({ job, status }) {
   const attempts = Object.values(job.attempts);
-  const settled = attempts.filter((a) => a.verdict && a.verdict !== "running");
+  // A cancelled loser was stopped, not judged, so it is in neither column.
+  const settled = attempts.filter((a) => a.verdict && a.verdict !== "running" && a.verdict !== "cancelled");
   const free = settled.filter((a) => a.gate && FREE_GATES.has(a.gate));
   const billed = settled.filter((a) => !a.gate || !FREE_GATES.has(a.gate));
 
@@ -266,9 +272,9 @@ export function Economics({ job, status }) {
 
       {settled.length > 0 && (
         <p className="hint" style={{ marginTop: 10 }}>
-          {free.length} of {settled.length} settled candidates died at a local gate,
-          before a sandbox was allocated. That is the search being paid for in
-          microseconds instead of seconds.
+          {free.length} of {settled.length} settled candidates were rejected before a
+          sandbox was allocated: at a local gate, or because the reply held no usable
+          diff. Those cost model tokens but no sandbox time.
         </p>
       )}
 
@@ -385,7 +391,7 @@ export function TaskBoard({ job, onSelect }) {
               if (!a) return null;
               const settled = t.state === "verified" || t.state === "discarded";
               const lost = settled && t.winner && t.winner !== a.id;
-              const label = `${a.kind === "repairer" ? "repair" : `candidate ${a.n}`}, verdict ${a.verdict}`;
+              const label = `${a.kind === "repair" ? "repair" : `candidate ${a.n}`}, verdict ${a.verdict}`;
               return (
                 <div
                   key={aid}
@@ -396,7 +402,7 @@ export function TaskBoard({ job, onSelect }) {
                     "candidate",
                     verdictClass(a.verdict),
                     lost ? "cancelled" : "",
-                    a.kind === "repairer" ? "repair" : "",
+                    a.kind === "repair" ? "repair" : "",
                   ].join(" ")}
                   onClick={() => onSelect(a)}
                   onKeyDown={(e) => {
@@ -407,7 +413,7 @@ export function TaskBoard({ job, onSelect }) {
                   }}
                 >
                   <div className="n">
-                    {a.kind === "repairer" ? "repair" : `candidate ${a.n}`}
+                    {a.kind === "repair" ? "repair" : `candidate ${a.n}`}
                   </div>
                   <div className="verdict">{a.verdict}</div>
                   <div className="gate">{a.gate ? `gate: ${a.gate}` : shortModel(a.model)}</div>
@@ -421,9 +427,11 @@ export function TaskBoard({ job, onSelect }) {
   );
 }
 
+// Verdicts are the server's VerdictKind values: "ok" is the only pass.
 function verdictClass(v) {
-  if (v === "pass" || v === "green") return "pass";
+  if (v === "ok") return "pass";
   if (v === "running") return "running";
+  if (v === "cancelled") return "cancelled";
   if (v === "error") return "error";
   return "fail";
 }
@@ -466,10 +474,10 @@ export function ForkTree({ nodes }) {
             .map((n) => (
               <div key={n.attempt_id} className="node">
                 {"  └─ "}
-                <span className={n.verdict === "pass" ? "pass" : "fail"}>
-                  {n.verdict === "pass" ? "✓" : "✗"}
+                <span className={n.verdict === "ok" ? "pass" : "fail"}>
+                  {n.verdict === "ok" ? "✓" : n.verdict === "cancelled" ? "–" : "✗"}
                 </span>{" "}
-                {n.kind === "repairer" ? "repair" : `cand ${n.n}`}{" "}
+                {n.kind === "repair" ? "repair" : `cand ${n.n}`}{" "}
                 <span className="uuid">{short(n.result_image) || "—"}</span>
               </div>
             ))}
@@ -550,8 +558,8 @@ function Verdict({ verdict, prUrl }) {
   );
 }
 
-export function Outcome({ job, verdict, pending = false }) {
-  if (verdict) return <Verdict verdict={verdict} prUrl={job.prUrl} />;
+export function Outcome({ job, verdict, prUrl, pending = false }) {
+  if (verdict) return <Verdict verdict={verdict} prUrl={prUrl} />;
   // The verdict comes from a status request that lands after the stream says the
   // run is over. Holding its place stops the page jumping when it arrives.
   if (pending) {
@@ -562,15 +570,15 @@ export function Outcome({ job, verdict, pending = false }) {
       </div>
     );
   }
-  if (job.prUrl) {
+  if (prUrl) {
     return (
       <div className="outcome pr">
         <h2>Draft pull request opened</h2>
         <p>
-          Every gate passed, including the full suite with all patches applied together.
+          The full suite passed with all patches applied together.
           <br />
-          <a href={job.prUrl} target="_blank" rel="noreferrer">
-            {job.prUrl}
+          <a href={prUrl} target="_blank" rel="noreferrer">
+            {prUrl}
           </a>
         </p>
       </div>
@@ -852,17 +860,23 @@ export function EventLog({ events }) {
 /* ----------------------------------------------------------------- drawer -- */
 
 export function EvidenceDrawer({ attempt, onClose }) {
-  const [artifact, setArtifact] = useState(null);
+  // The attempt's diff, and its test log when it reached a sandbox. A candidate
+  // that died at a local gate still produced a diff worth reading.
+  const [artifacts, setArtifacts] = useState([]);
   const asideRef = useRef(null);
+  const ids = attempt ? [attempt.diffArtifactId, attempt.artifactId].filter(Boolean) : [];
 
   useEffect(() => {
-    setArtifact(null);
-    if (!attempt?.artifactId) return;
+    setArtifacts([]);
+    if (ids.length === 0) return undefined;
     let cancelled = false;
-    fetch(`/artifacts/${attempt.artifactId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => !cancelled && setArtifact(d))
-      .catch(() => {});
+    Promise.all(
+      ids.map((id) =>
+        fetch(`/artifacts/${id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+      )
+    ).then((found) => !cancelled && setArtifacts(found.filter(Boolean)));
     return () => {
       cancelled = true;
     };
@@ -895,7 +909,7 @@ export function EvidenceDrawer({ attempt, onClose }) {
       >
         <header>
           <h2 id="drawer-heading">
-            {attempt.kind === "repairer" ? "repair" : `candidate ${attempt.n}`} · {attempt.verdict}
+            {attempt.kind === "repair" ? "repair" : `candidate ${attempt.n}`} · {attempt.verdict}
           </h2>
           <div style={{ flex: 1 }} />
           <button onClick={onClose}>Close</button>
@@ -931,16 +945,18 @@ export function EvidenceDrawer({ attempt, onClose }) {
             </>
           )}
 
-          {artifact ? (
-            <>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
-                {artifact.kind}
+          {artifacts.length > 0 ? (
+            artifacts.map((art) => (
+              <div key={art.id} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                  {art.kind === "diff" ? "diff" : "test log"} · sha256 {String(art.sha256).slice(0, 12)}
+                </div>
+                {art.kind === "diff" ? <Diff text={art.content} /> : <pre className="code">{art.content}</pre>}
               </div>
-              <Diff text={artifact.content} />
-            </>
+            ))
           ) : (
             <p className="empty">
-              {attempt.artifactId
+              {ids.length > 0
                 ? "Loading evidence…"
                 : "No artifact for this attempt. Losing candidates are kept, not deleted — but one that never produced a diff has nothing to show."}
             </p>

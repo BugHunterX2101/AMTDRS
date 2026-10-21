@@ -107,6 +107,34 @@ async def run_job(
             store.update_job(job_id, state="Aborted", stop_reason=str(exc), finished_at=now())
 
 
+async def run_plan_only(
+    job_id: str, *, store: Store, events: EventLog, sandbox: SandboxClient, models: ModelClient,
+    settings: Settings,
+) -> None:
+    """The dry run: ingest, map and plan, then stop in a terminal state.
+
+    One implementation for the API and the CLI. The CLI's own copy never wrote a
+    terminal state, so a dry run sat in Planning forever with no outcome.
+    """
+    try:
+        await _ingest_and_baseline(job_id, store, events, sandbox, settings)
+        graph_id = await _map(job_id, store, events, settings)
+        target = _resolve_target(store, job_id, graph_id)
+        await _plan(job_id, store, events, models, graph_id, target, settings)
+    except PrincipalError as exc:
+        with events.transaction(job_id, "job.state", {"state": "Aborted", "reason": exc.message,
+                                                        "code": exc.code.value}):
+            store.update_job(job_id, state="Aborted", stop_reason=exc.message, finished_at=now())
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dry run %s crashed", job_id)
+        with events.transaction(job_id, "job.state", {"state": "Aborted", "reason": str(exc)}):
+            store.update_job(job_id, state="Aborted", stop_reason=str(exc), finished_at=now())
+        return
+    with events.transaction(job_id, "job.state", {"state": "Done"}):
+        store.update_job(job_id, state="Done", stop_reason="dry_run", finished_at=now())
+
+
 def _stop_no_pr(store: Store, events: EventLog, job_id: str, reason: str) -> None:
     with events.transaction(job_id, "job.stopped", {"reason": reason}):
         store.update_job(job_id, state="NoPR", stop_reason=reason, finished_at=now())
@@ -524,6 +552,15 @@ async def _cleanup(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
                          candidates_per_task=settings.candidates_per_task)
     await runner.run_waves([created])
 
+    # How much of what was found actually came out: only a verified cleanup
+    # task's removals are in the integrated result.
+    settled = {t.id: t for t in store.tasks_of(job_id)}
+    events.emit(job_id, "cleanup.result", {
+        "orphans_found": sum(len(ct.names) for ct in cleanup_tasks),
+        "removed": sum(len(t.declared_removals) for t in created
+                       if settled.get(t.id) and settled[t.id].state == "verified"),
+    })
+
 
 async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sandbox: SandboxClient,
                                   models: ModelClient, graph_id: str, radius: BlastRadius,
@@ -757,10 +794,16 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
     except PrincipalError as exc:
         events.emit(job_id, "pr.publish_failed", {"reason": exc.message})
 
-    with events.transaction(job_id, "job.state", {"state": "Done"}):
-        store.update_job(job_id, state="Done", pr_url=pr_url, finished_at=now())
+    _finish_done(store, events, job_id, pr_url)
+
+
+def _finish_done(store: Store, events: EventLog, job_id: str, pr_url: str | None) -> None:
+    """The PR link first, then Done. The stream ends at Done, live or on replay, so
+    anything written after it never reaches a client."""
     if pr_url:
         events.emit(job_id, "pr.opened", {"url": pr_url})
+    with events.transaction(job_id, "job.state", {"state": "Done"}):
+        store.update_job(job_id, state="Done", pr_url=pr_url, finished_at=now())
 
 
 # ------------------------------------------------------------------ helpers ---

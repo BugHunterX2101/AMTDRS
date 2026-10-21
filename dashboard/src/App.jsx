@@ -57,7 +57,12 @@ async function describeFailure(res) {
   const text = await res.text();
   try {
     const body = JSON.parse(text);
-    const msg = body.message || (typeof body.detail === "string" ? body.detail : body.detail?.message);
+    // The documented envelope is {"error": {"code", "message"}}; FastAPI's own
+    // errors are {"detail": ...}.
+    const msg =
+      body.error?.message ||
+      body.message ||
+      (typeof body.detail === "string" ? body.detail : body.detail?.message);
     if (msg) return msg;
   } catch {
     /* not JSON: fall through */
@@ -201,7 +206,12 @@ export default function App() {
   // `data-o` is the order a phone reads the panels in. On a wide screen the three
   // columns are independent and it has no effect; on one column the verdict and
   // the pipeline come first, not after a form and two empty lists.
-  const outcome = <Outcome job={job} verdict={verdict} pending={terminal && !status && !gaveUp} />;
+  // The stream carries the PR link; the status poll is the fallback for a run
+  // recorded before the link was written ahead of its terminal event.
+  const prUrl = job.prUrl || status?.pr_url || null;
+  const outcome = (
+    <Outcome job={job} verdict={verdict} prUrl={prUrl} pending={terminal && !status && !gaveUp} />
+  );
 
   return (
     <>
@@ -291,8 +301,8 @@ export default function App() {
                     by this refactor
                     {job.cleanup.skipped
                       ? ` — skipped (${job.cleanup.reason || "refactor diffs did not verify together"})`
-                      : job.cleanup.orphansFound != null
-                      ? ` — ${job.cleanup.orphansFound} orphan(s) confirmed and removed`
+                      : job.cleanup.removed != null
+                      ? ` — ${job.cleanup.removed} of ${job.cleanup.orphansFound} unused name(s) removed and verified`
                       : ""}
                     .
                   </div>

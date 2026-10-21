@@ -178,7 +178,28 @@ async def _one_candidate(
         "task_id": task.id, "attempt_id": attempt.id, "n": n, "model": ctx.models.model_ids[tier],
         "temperature": temperature,
     })
+    try:
+        return await _candidate_body(ctx, task, attempt, context_pack, temperature, tier)
+    except asyncio.CancelledError:
+        _record_cancelled(ctx, task, attempt.id)
+        raise
 
+
+def _record_cancelled(ctx: TaskContext, task: Task, attempt_id: str) -> None:
+    """An attempt stopped before it reached a verdict: a loser once another candidate
+    went green, or one cut off by a timeout or a cancelled job. Without a verdict
+    the row read as still running for the rest of the job's life."""
+    ctx.store.update_attempt(attempt_id, verdict="cancelled")
+    ctx.events.emit(ctx.job_id, "attempt.verdict", {
+        "task_id": task.id, "attempt_id": attempt_id, "verdict": "cancelled",
+        "reason": "stopped before a verdict: another candidate passed first, the task timed out,"
+                  " or the job was cancelled",
+    })
+
+
+async def _candidate_body(
+    ctx: TaskContext, task: Task, attempt, context_pack: str, temperature: float, tier: Tier,
+) -> tuple[str, Verdict, object | None]:
     try:
         diff, completion = await generate_candidate(
             ctx.models, job_id=ctx.job_id, context_pack=context_pack, temperature=temperature, tier=tier,
@@ -205,7 +226,7 @@ async def _one_candidate(
     )
     # Saved unconditionally, not only on a sandbox pass, so a repair always has
     # something to start from even when every candidate died at a local gate.
-    ctx.store.put_artifact(
+    diff_art_id = ctx.store.put_artifact(
         job_id=ctx.job_id, kind="diff", rel_path=f"attempts/{attempt.id}.diff",
         content=diff.text, base_dir=ctx.runs_dir, attempt_id=attempt.id,
     )
@@ -216,7 +237,7 @@ async def _one_candidate(
         ctx.store.update_attempt(attempt.id, verdict=local_verdict.kind.value, gate=local_verdict.gate)
         ctx.events.emit(ctx.job_id, "attempt.verdict", {
             "task_id": task.id, "attempt_id": attempt.id, "verdict": local_verdict.kind.value,
-            "gate": local_verdict.gate, "reason": local_verdict.reason,
+            "gate": local_verdict.gate, "reason": local_verdict.reason, "diff_artifact_id": diff_art_id,
         })
         return attempt.id, local_verdict, None
 
@@ -238,7 +259,7 @@ async def _one_candidate(
     ctx.events.emit(ctx.job_id, "attempt.verdict", {
         "task_id": task.id, "attempt_id": attempt.id, "verdict": verdict.kind.value,
         "gate": verdict.gate, "reason": verdict.reason, "artifact_id": art_id,
-        "operation_id": getattr(run, "operation_id", None),
+        "diff_artifact_id": diff_art_id, "operation_id": getattr(run, "operation_id", None),
         "failing": getattr(run, "failing", [])[:10] if run else [],
     })
     return attempt.id, verdict, run
@@ -294,24 +315,41 @@ async def _repair_once(
         "task_id": task.id, "attempt_id": attempt.id, "n": attempt_n,
         "model": ctx.models.model_ids[Tier.SUPER], "temperature": 0.2, "kind": "repair",
     })
+    try:
+        return await _repair_body(ctx, task, attempt, prompt, content)
+    except asyncio.CancelledError:
+        _record_cancelled(ctx, task, attempt.id)
+        raise
 
+
+async def _repair_body(
+    ctx: TaskContext, task: Task, attempt, prompt: str, content: str,
+) -> tuple[str, Verdict, object | None]:
     try:
         diff, kind, completion = await repair_agent(
             ctx.models, job_id=ctx.job_id, prompt=prompt,
             target_file=task.target_file, original=content,
         )
-    except (DiffUnparseable, PrincipalError) as exc:
-        reason = exc.message if isinstance(exc, PrincipalError) else str(exc)
+    except DiffUnparseable as exc:
         ctx.store.update_attempt(attempt.id, verdict="error", gate="diffparse")
         ctx.events.emit(ctx.job_id, "attempt.verdict", {
-            "task_id": task.id, "attempt_id": attempt.id, "verdict": "error", "reason": reason,
+            "task_id": task.id, "attempt_id": attempt.id, "verdict": "error", "gate": "diffparse",
+            "reason": str(exc),
         })
-        return attempt.id, Verdict.fail(VerdictKind.ERROR, "diffparse", reason), None
+        return attempt.id, Verdict.fail(VerdictKind.ERROR, "diffparse", str(exc)), None
+    except PrincipalError as exc:
+        # The same label a coder's model failure gets: no diff was produced to parse.
+        ctx.store.update_attempt(attempt.id, verdict="error", gate="model")
+        ctx.events.emit(ctx.job_id, "attempt.verdict", {
+            "task_id": task.id, "attempt_id": attempt.id, "verdict": "error", "gate": "model",
+            "reason": exc.message,
+        })
+        return attempt.id, Verdict.fail(VerdictKind.ERROR, "model", exc.message), None
 
     ctx.store.update_attempt(
         attempt.id, prompt_tokens=completion.prompt_tokens, completion_tokens=completion.completion_tokens,
     )
-    ctx.store.put_artifact(
+    diff_art_id = ctx.store.put_artifact(
         job_id=ctx.job_id, kind="diff", rel_path=f"attempts/{attempt.id}.diff",
         content=diff.text, base_dir=ctx.runs_dir, attempt_id=attempt.id,
     )
@@ -330,7 +368,7 @@ async def _repair_once(
         ctx.store.update_attempt(attempt.id, verdict=local_verdict.kind.value, gate=local_verdict.gate)
         ctx.events.emit(ctx.job_id, "attempt.verdict", {
             "task_id": task.id, "attempt_id": attempt.id, "verdict": local_verdict.kind.value,
-            "gate": local_verdict.gate, "reason": local_verdict.reason,
+            "gate": local_verdict.gate, "reason": local_verdict.reason, "diff_artifact_id": diff_art_id,
         })
         return attempt.id, local_verdict, None
 
@@ -340,9 +378,18 @@ async def _repair_once(
         result_image=getattr(new_run, "image", None), exit_code=getattr(new_run, "exit_code", None),
         duration_ms=getattr(new_run, "duration_ms", None), cost=getattr(new_run, "cost", None),
     )
+    # The same evidence a first-round candidate leaves: its test log and the
+    # sandbox operation, so a repair can be audited like any other attempt.
+    art_id = None
+    if new_run is not None:
+        art_id = ctx.store.put_artifact(
+            job_id=ctx.job_id, kind="test_log", rel_path=f"attempts/{attempt.id}.log",
+            content=getattr(new_run, "stdout", ""), base_dir=ctx.runs_dir, attempt_id=attempt.id,
+        )
     ctx.events.emit(ctx.job_id, "attempt.verdict", {
         "task_id": task.id, "attempt_id": attempt.id, "verdict": verdict.kind.value,
-        "gate": verdict.gate, "reason": verdict.reason,
+        "gate": verdict.gate, "reason": verdict.reason, "artifact_id": art_id,
+        "diff_artifact_id": diff_art_id, "operation_id": getattr(new_run, "operation_id", None),
         "failing": getattr(new_run, "failing", [])[:10] if new_run else [],
     })
     return attempt.id, verdict, new_run
@@ -410,7 +457,12 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
             # Retrying immediately against a platform that just failed is
             # wasted spend; leave it to the user's retry, which is budgeted.
             break
-        last_run = run
+        # The next repair reads a diff and the failures that diff produced, as a
+        # pair. A repair that never reached a sandbox has no failures to pair, so
+        # the last pair that did stays the more informative seed.
+        if run is not None:
+            last_diff = _diff_of_attempt(ctx, attempt_id) or last_diff
+            last_run = run
         n += 1
 
     return _discard(

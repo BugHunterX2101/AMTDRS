@@ -263,7 +263,9 @@ def _gate_line(name: str, p: dict[str, Any]) -> str:
         return (f"{p.get('detected')} of {p.get('detected', 0) + p.get('survived', 0)} injected faults "
                 f"detected, score {p.get('score'):.0%} (floor {p.get('floor'):.0%})")
     if name == "characterise":
-        return f"mutation score {p.get('score')}" if "score" in p else "ran"
+        score = (p.get("mutation") or {}).get("score")
+        measured = f"mutation score {score:.2f}" if isinstance(score, (int, float)) else "no mutation score"
+        return f"{p.get('status', 'ran')}, {measured} across {p.get('mutants_generated', 0)} mutants"
     return "ran"
 
 

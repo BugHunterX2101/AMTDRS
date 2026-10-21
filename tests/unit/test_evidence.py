@@ -125,16 +125,68 @@ def test_zip_ships_artifacts_with_a_hash_manifest_and_flags_tampering(store, set
     assert manifest == {"attempts/a.diff": True, "attempts/b.diff": False}
 
 
+def test_the_characterisation_score_is_reported_not_just_that_it_ran(store, settings):
+    """The result nests the score under `mutation`. Reading a top-level `score`
+    made every characterised run's report say only "ran"."""
+    job = _job(store, LIVE)
+    store.append_event(job.id, "characterise.result", {
+        "status": "ok", "reason": "", "test_path": "tests/x.py", "mutants_generated": 5,
+        "mutation": {"score": 0.8},
+    })
+    md = render_markdown(build_evidence(store, settings, job.id))
+    assert "**characterise:** ok, mutation score 0.80 across 5 mutants" in md
+
+
 @pytest.fixture
 def client(store, settings):
+    from principal.db.events import EventLog
+
     app = FastAPI()
     app.include_router(router)
     app.state.store = store
     app.state.settings = settings
+    app.state.events = EventLog(store, settings.principal_runs_dir)
+    app.state.background_tasks = {}
+
+    async def cancel(op_id):
+        return None
+
+    app.state.sandbox = SimpleNamespace(cancel=cancel)
     app.state.models = SimpleNamespace(
-        budget_refusals=0, rate_headroom=SimpleNamespace(remaining_requests=None, remaining_tokens=None),
+        refusals_for=lambda _job_id: 0,
+        rate_headroom=SimpleNamespace(remaining_requests=None, remaining_tokens=None),
     )
-    return TestClient(app)
+    c = TestClient(app)
+    c.app_state = app.state
+    return c
+
+
+def test_cancelling_a_finished_job_does_not_rewrite_its_result(client, store):
+    job = _job(store, LIVE)
+    store.update_job(job.id, state="Done", pr_url="https://example.test/pr/1")
+
+    resp = client.post(f"/jobs/{job.id}/cancel")
+
+    assert resp.status_code == 409
+    after = store.get_job(job.id)
+    assert after.state == "Done" and after.stop_reason is None
+
+
+def test_cancelling_a_running_job_stops_its_task_too(client, store):
+    """Marking the row NoPR is not enough: the coroutine kept running, and its
+    later Done or Aborted overwrote the cancellation."""
+    job = _job(store, LIVE)
+    store.update_job(job.id, state="Executing")
+    task = SimpleNamespace(cancelled=False, done=lambda: False)
+    task.cancel = lambda: setattr(task, "cancelled", True)
+    client.app_state.background_tasks[job.id] = task
+
+    resp = client.post(f"/jobs/{job.id}/cancel")
+
+    assert resp.status_code == 202
+    assert task.cancelled is True
+    after = store.get_job(job.id)
+    assert (after.state, after.stop_reason) == ("NoPR", "cancelled")
 
 
 def test_job_status_exposes_outcome_and_provenance(client, store):

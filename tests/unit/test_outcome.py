@@ -237,6 +237,19 @@ def test_no_safety_net_is_unverified_with_its_own_cause():
     assert report.outcome is Outcome.UNVERIFIED and report.cause == "no_safety_net"
 
 
+def test_a_plan_only_run_is_never_verified():
+    """A dry run ends in Done after planning. Nothing was generated or tested, so
+    "every check that ran came back clean" is vacuously true and must not read as
+    a pass."""
+    report = classify(Signals(state="Done", stop_reason="dry_run"))
+    assert report.outcome is Outcome.UNVERIFIED and report.cause == "plan_only"
+    assert not report.pr_offered and not report.repository_changed
+
+
+def test_done_with_no_verified_task_is_not_verified():
+    assert classify(Signals(state="Done", verified_tasks=0)).outcome is Outcome.UNVERIFIED
+
+
 # ------------------------------------------------------------------- the contract --
 
 

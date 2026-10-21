@@ -44,7 +44,7 @@ class AppState:
     events: EventLog
     sandbox: SandboxClient
     models: ModelClient
-    background_tasks: set
+    background_tasks: dict
 
 
 async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
@@ -140,7 +140,7 @@ async def _startup(app: FastAPI, settings: Settings, store: Store) -> None:
     app.state.sandbox = sandbox
     app.state.models = models
     app.state.backends = backends
-    app.state.background_tasks = set()
+    app.state.background_tasks = {}  # job id -> its running asyncio task
 
 
 _STATUS_BY_CODE: dict[Code, int] = {

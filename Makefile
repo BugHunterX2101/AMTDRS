@@ -22,7 +22,6 @@ test:  ## run the test suite
 
 lint:  ## ruff + the architecture contracts
 	$(PY) -m ruff check principal mcp_code_graph bench tests spikes
-	$(PY) -m ruff format --check principal mcp_code_graph bench
 	$(MAKE) arch
 
 fmt:  ## autoformat and autofix

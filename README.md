@@ -741,7 +741,7 @@ make bench         # the same run without the credential check first
 
 `bench/tasks.json` pins **two tasks, not a suite**: the bundled `mini_repo`, and the weak-tests repository where a green change can still be unverified. **No benchmark results are published here.**
 
-> **Only the weak-tests task can run live today.** The `mini_repo` task points at a local path, which the Nebius sandbox cannot clone (see the quick start), so on the real platform it would end as an infrastructure exclusion. It becomes a live task once the fixture is published as a public repository.
+> **Both tasks point at public git URLs**, because the Nebius sandbox cannot clone a local path (see the quick start). The `mini_repo` task uses the fixture's published branch, `fixture/mini-repo` at `3d11f55`, the same repository and commit as live run 6. No benchmark run has been made with this task list.
 
 ### Deploying the hosted demo
 

@@ -3,11 +3,11 @@
   "tasks": [
     {
       "id": "mini_repo-ttl-keyword-only",
-      "repo_url": "tests/fixtures/mini_repo",
-      "commit_sha": "deadbeef",
+      "repo_url": "https://github.com/BugHunterX2101/AMTDRS",
+      "commit_sha": "3d11f5598b40ce6221f4315543f0d1243b480676",
       "target_fqn": "src.auth.session.create",
       "goal": "Make the ttl parameter of create() keyword-only, and update every call site across the codebase to pass it by keyword.",
-      "notes": "The bundled fixture. 7 files in the true blast radius, 9 call sites, 1 aliased import, 1 dynamic-dispatch file, 2 genuinely unresolvable calls. Every candidate that changes only the signature and forgets a call site should be caught by gate 3."
+      "notes": "The bundled fixture (tests/fixtures/mini_repo), published as the orphan branch fixture/mini-repo so the sandbox can clone it. 7 files in the true blast radius, 9 call sites, 1 aliased import, 1 dynamic-dispatch file, 2 genuinely unresolvable calls. Every candidate that changes only the signature and forgets a call site should be caught by gate 3."
     },
     {
       "id": "weak_repo-calc-total-types",

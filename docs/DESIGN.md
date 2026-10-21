@@ -2,6 +2,8 @@
 
 2026-09-18 · @Someone
 
+> **Status: design-time document.** Scope figures here, such as up to 2,000 files, are targets set before the build, not measurements. Nothing in the code caps repository size; what is enforced is the blast radius (depth 3, at most 40 files). The [README](../README.md) records what was built and measured.
+
 This document turns the Principal PRD into buildable specifics: process boundaries, schemas, tool contracts, and an implementation order. The PRD decides what Principal is and why. This decides how it is built and what a developer types first.
 
 ## Design goals and constraints

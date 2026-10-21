@@ -169,12 +169,17 @@ def canonicalise(parsed: ParsedDiff, target_file: str, original: str) -> ParsedD
             s for s in range(cursor, len(src) - len(old) + 1)
             if all(src[s + k].rstrip("\r\n") == old[k] for k in range(len(old)))
         ]
-        if old and not starts:
-            raise DiffUnparseable("context mismatch: a hunk's context is not found in the file")
-        at = min(starts, key=lambda s: abs(s - hint)) if old else min(max(hint, cursor), len(src))
+        if old and starts:
+            at = min(starts, key=lambda s: abs(s - hint))
+            end, replacement = at + len(old), [n + eol for n in new]
+        elif old:
+            at, end, replacement = _locate_ignoring_blank_context(src, hunk, cursor, hint, eol)
+        else:
+            at = min(max(hint, cursor), len(src))
+            end, replacement = at, [n + eol for n in new]
         out.extend(src[cursor:at])
-        out.extend(n + eol for n in new)
-        cursor = at + len(old)
+        out.extend(replacement)
+        cursor = end
     out.extend(src[cursor:])
 
     if out == src:
@@ -185,6 +190,45 @@ def canonicalise(parsed: ParsedDiff, target_file: str, original: str) -> ParsedD
         body.append(ln if ln.endswith("\n") else ln + "\n" + _NO_NEWLINE + "\n")
     text = f"--- a/{target_file}\n+++ b/{target_file}\n" + "".join(body)
     return parse_diff(f"{OPEN}\n{text}{CLOSE}")
+
+
+def _locate_ignoring_blank_context(
+    src: list[str], hunk, cursor: int, hint: int, eol: str,
+) -> tuple[int, int, list[str]]:
+    """Second pass for a hunk whose exact context is not in the file.
+
+    Seen live from Nano: one blank line written where the file has two between
+    definitions, and a correct change rejected for it. Here a blank context line
+    matches one blank file line or nothing, and blank file lines the hunk left out
+    are kept as they are. Every line with content, and every removed line, must
+    still match exactly, so this never skips code. Returns (start, end, lines).
+    """
+    lines = [(ln.line_type, ln.value.rstrip("\r\n")) for ln in hunk if ln.line_type in (" ", "+", "-")]
+    found = []
+    for s in range(cursor, len(src)):
+        i, replacement = s, []
+        for op, text in lines:
+            if op == "+":
+                replacement.append(text + eol)
+                continue
+            if op == " " and not text.strip():
+                if i < len(src) and not src[i].strip():
+                    replacement.append(src[i])
+                    i += 1
+                continue
+            while text.strip() and s < i < len(src) and not src[i].strip():
+                replacement.append(src[i])
+                i += 1
+            if i >= len(src) or src[i].rstrip("\r\n") != text:
+                break
+            if op == " ":
+                replacement.append(src[i])
+            i += 1
+        else:
+            found.append((s, i, replacement))
+    if not found:
+        raise DiffUnparseable("context mismatch: a hunk's context is not found in the file")
+    return min(found, key=lambda f: abs(f[0] - hint))
 
 
 def path_traversal(paths: set[str]) -> bool:

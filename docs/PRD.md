@@ -4,6 +4,8 @@
 
 *Nebius x NVIDIA Hackathon, Coding and Agentic Engineering track*
 
+> **Status: design-time document.** Figures here, such as repositories up to about 2,000 files and under 20 minutes per job, are targets set before the build, not measurements. Nothing in the code caps repository size; what is enforced is the blast radius (depth 3, at most 40 files). What was built and measured is in the [README](../README.md): the live runs and the verification ledger.
+
 ## Executive summary
 
 Principal takes one repository-wide refactoring goal and returns a pull request that has already passed the repo's own test suite inside an isolated sandbox, or it returns nothing. There is no middle state where a human reviews a plausible-looking diff of unknown correctness.

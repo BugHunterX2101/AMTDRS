@@ -91,7 +91,7 @@ export function Masthead({ health, provenance, connected, finished, jobId, runni
 // the local stand-in.
 const DEFAULTS = {
   repo_url: "https://github.com/BugHunterX2101/AMTDRS",
-  commit_sha: "654e86c317d7437218ff3103cdffcd2b9f199a76",
+  commit_sha: "3d11f5598b40ce6221f4315543f0d1243b480676",
   target_fqn: "src.auth.session.create",
   goal: "Make the ttl parameter keyword-only and update every call site.",
   routine: "interface_evolution",

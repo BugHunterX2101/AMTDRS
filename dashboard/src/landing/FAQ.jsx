@@ -25,7 +25,7 @@ const ITEMS = [
   },
   {
     q: "What's actually in scope today?",
-    a: "Two refactor classes, selected per job through a routine registry: interface evolution — changing how a module exposes functionality and propagating the change through every consumer — and relocation, moving a symbol and reconciling every importer. Both run on repositories up to roughly 2,000 files. The code graph parses Python and TypeScript today; the verification path runs `pytest`, so Python is what ships end to end and TypeScript stops at analysis until a `vitest` runner lands. Decomposition and extraction — splitting or pulling logic out of a function — are on the roadmap, not V1.",
+    a: "Two refactor classes, selected per job through a routine registry: interface evolution — changing how a module exposes functionality and propagating the change through every consumer — and relocation, moving a symbol and reconciling every importer. Repository size is not capped; the change is: its blast radius may reach at most 40 files, three call or import hops deep, or the job stops with RADIUS_TOO_LARGE instead of working on part of it. Live runs so far have been on small repositories. The code graph parses Python and TypeScript today; the verification path runs `pytest`, so Python is what ships end to end and TypeScript stops at analysis until a `vitest` runner lands. Decomposition and extraction — splitting or pulling logic out of a function — are on the roadmap, not V1.",
   },
   {
     q: "What happens when the target has no test coverage?",

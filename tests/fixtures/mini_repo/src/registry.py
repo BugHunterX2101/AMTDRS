@@ -10,6 +10,6 @@ from src.auth import session
 HANDLERS = {"create": "create", "destroy": "destroy"}
 
 
-def dispatch(name, *args):
+def dispatch(name, *args, **kwargs):
     fn = getattr(session, HANDLERS[name])
-    return fn(*args)
+    return fn(*args, **kwargs)

@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **425 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-21**: `pytest -q` → **432 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on Linux and on Python 3.11/3.12 has not been checked for this commit. Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -167,14 +167,32 @@ That is a single run, not a rate. Principal produced a change whose tests pass, 
 
 - Outcome **UNVERIFIED**, state `NoPR`: the planner (Ultra) split the goal into **6 tasks**, **4 settled** with a winning candidate that passed the local tests, **2 were discarded** after Nano and Super both failed to produce a usable diff, and 2 of 6 exceeds the 30% discard cap, so the job stopped with the repository unchanged. **It did not reach VERIFIED.**
 - **The ledger reconciles with many cancelled candidates in play: 58,409 tokens charged, 58,409 attributed, 0 unattributed.** Most failures were `DIFF_UNPARSEABLE` (no `<<<DIFF … DIFF>>>` block in the reply); at least one Nano reply used 2,985 of its 3,000-token cap, which may be truncation, though this run does not prove it.
-- Three live runs on two repositories now exist: none is VERIFIED, and the first run's tests passed but could not cover a dynamic call. This is evidence about the pipeline's honesty, **not** a claim that it succeeds on this task.
+- At this point three live runs on two repositories existed and none was VERIFIED; the first run's tests passed but could not cover a dynamic call. That was evidence about the pipeline's honesty, **not** a claim that it succeeds on this task.
 
 **A fourth live run, same `mini_repo` goal, after the diff-parser fix** (a reply ending its block with an indented ` DIFF>>>` or a bare `>>>` is now read; hunk matching is unchanged):
 
 - State **Done**, outcome **UNVERIFIED**. The planner split the goal into **7 tasks**: **5 verified**, **2 discarded** (2 of 7 is under the 30% cap, so the job went on to integration). Integration **passed**, security found **0 introduced** findings, and the strength audit detected **8 of 10** injected faults (score 80%, floor 60%).
 - **It is not VERIFIED, and should not be.** One of the two discarded tasks was `src/auth/session.py`, the file that defines `create()`. The five call sites now pass `ttl` by keyword, which the old signature still accepts, but `ttl` is **not** keyword-only. The other discarded task left `src/legacy/compat.py` on the old form. Both are listed as open caveats.
 - **The ledger reconciles: 69,748 tokens charged, 69,748 attributed, 0 unattributed, across 21 model calls.** Of the attempts, 5 passed, 2 failed tests, 10 were rejected as unusable diffs and 2 were model errors; 6 have no verdict, which in a finished run means they were cancelled after another candidate won (this run predates recording them as `cancelled`). No pull request was opened, because publishing is not configured on this machine.
-- The reporter's single call used exactly its 2,000-token output cap, so its reply was probably cut off and the deterministic fallback report used instead. That is an inference from the count, not something this run recorded.
+- The reporter's single call used exactly its 2,000-token output cap, so its reply was probably cut off and the deterministic fallback report used instead. That is an inference from the count, not something this run recorded. The cap is now 6,000 tokens, and a fallback is logged.
+
+**Why `session.py` kept failing, and what changed.** Every task was verified alone against `C0`. Making `ttl` keyword-only breaks every positional caller, so the definition's task could never pass on a tree whose callers had not been updated — no model could have produced a passing diff. Three fixes followed, each covered by tests:
+
+- **Dependency-aware verification** (above): a task is tested on `C0` plus the verified diffs of the tasks it depends on, and the planner is told to order a breaking change so consumers come first.
+- **Blank-line tolerance when locating a hunk**, only as a fallback when the exact context is not in the file: a blank context line may match one blank file line or none, and blank lines the hunk left out are kept. Every line with content still has to match exactly. This was a real Nano reply, rejected for writing one blank line where the file had two.
+- **The fixture's own tests were changed.** ⚠️ `mini_repo`'s tests called `create(user, 120)` positionally, so the goal *"make `ttl` keyword-only"* could not pass them — any correct change was red. The tests now pass `ttl` by keyword, and `src/registry.py`'s `dispatch()` forwards keyword arguments; the assertions are unchanged, and a hand-written full migration passes all 14 tests. This changes the benchmark, so it is stated here: the fixture branch moved from `654e86c` to [`3d11f55`](https://github.com/BugHunterX2101/AMTDRS/tree/fixture/mini-repo).
+
+**A fifth live run** (job `01M5FTFZPQ3VS87HF00F0RN2K5`, fixture `3d11f55`, dependency-aware verification, before the blank-line fix): state `NoPR`, outcome **UNVERIFIED**. The planner made `session.py` depend on all five consumer tasks; 4 consumers verified, `refresh.py` was discarded after every reply failed to locate its hunks (one blank line where the file had two), so `session.py` was tested without it and failed red twice. 2 of 6 discarded exceeds the cap. Ledger **56,261 = 56,261** across 20 calls.
+
+**A sixth live run — VERIFIED** (job `01M5FTZVBPDH18S99QN4BW9ANB`, same fixture and goal, model cache off, after the blank-line fix):
+
+- State **Done**, outcome **✅ VERIFIED**. **6 of 6 tasks verified**, all by a first-round Nano candidate (no Super repair needed); 12 other candidates were cancelled once a sibling won.
+- The definition changed: `def create(user, ttl=DEFAULT_TTL)` → `def create(user, *, ttl=DEFAULT_TTL)`. The impact check counted **9 of 9 call sites changed**, 0 unexpected files, and both dynamic paths in `src/registry.py` **exercised by tests**.
+- Integration **passed**, security **0 introduced** findings, strength audit **7 of 9** injected faults detected (78%, floor 60%; the two survivors are `120 → 121` and `10 → 11` in literal TTLs).
+- **19,855 tokens** across 10 model calls (ledger 19,855 = 19,855). No pull request, because publishing is not configured on this machine.
+- **One run, not a rate.** It is the first VERIFIED result, it came after the fixture's tests were changed (above), and the previous five runs on these two repositories did not reach VERIFIED.
+
+**The weak repository now has tests for its callers.** [`principal-weak-repo`](https://github.com/BugHunterX2101/principal-weak-repo) commit `4ec27e0` adds tests that cover `calc_total`'s keyword and explicit-tax uses, its two callers and the `getattr` path in `src/reports.py`. The benchmark stays pinned to `3fd067a`, the weak version, because that is the case it measures; no live run has been made at `4ec27e0`.
 
 ---
 
@@ -343,7 +361,7 @@ sequenceDiagram
     alt rejected locally
         GA-->>S: verdict scope or syntax — zero sandbox spend
     else accepted locally
-        GA->>SB: fork C0, apply diff, run selected tests
+        GA->>SB: fork C0, apply dependencies' verified diffs + this diff, run selected tests
         SB-->>GA: exit code, log, result image
         GA-->>S: verdict ok or red
     end
@@ -432,6 +450,7 @@ assert same1.uuid == same2.uuid
 Two consequences are load-bearing:
 
 - **Checkpoint-fork is the unit of state.** The green baseline `C0` is built **once** — clone, install, run the suite — and every candidate for every task forks from it. Dependency installation, usually the dominant cost of CI-like work, is paid **once per job**, not once per candidate: with three candidates across a dozen tasks, **one install instead of thirty-six**.
+- **A task is tested with the work it depends on.** A candidate's fork gets the verified diffs of the task's dependencies (in plan order) before its own, so a breaking change can be tested once its consumers are updated. The stored winning diff stays the task's own, so integration applies each change exactly once. The planner orders a breaking change so that consumers come first, written to work with both interfaces.
 - **Failure is free because it is private.** A candidate that breaks the build breaks *its own fork*. No shared mutable tree to corrupt, no cleanup, no interference between parallel attempts.
 
 > **Sandboxes made the parallel search *affordable*, not merely faster.** On ordinary containers you would have to either serialise the work (losing the parallelism the thesis depends on) or reinstall dependencies per candidate (losing the economics).
@@ -562,7 +581,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 425 tests, unit + integration
+make test          # or: pytest — 432 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -820,7 +839,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            425 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            432 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -882,7 +901,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **425 tests pass** | `python -m pytest -q` on the working tree | ✅ 425 passed in 264 s |
+| **432 tests pass** | `python -m pytest -q` on the working tree | ✅ 432 passed in 195 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for an earlier commit | ⚠️ all 7 jobs succeeded then; **not re-checked since** (`gh` is not installed here) |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | ✅ 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | ✅ all checks passed |
@@ -896,6 +915,9 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **Second live run (cache off): UNVERIFIED, no change produced, ledger 26,711 charged = 26,711 attributed** | read `principal.db` read-only: `job.tokens_spent` against the sum of `model.call.billed_tokens`, plus the per-role models | ✅ one run; the outcome differs from the first run on the same goal, so neither is a rate |
 | **Third live run (mini_repo, cache off): UNVERIFIED, 4 of 6 tasks settled, 2 discarded, ledger 58,409 = 58,409** | same read-only ledger query; the task states and attempt verdicts from `principal.db` | ✅ one run; not VERIFIED, and the truncation explanation for the diff failures is a hypothesis, not a finding |
 | **Fourth live run (mini_repo, after the parser fix): Done → UNVERIFIED, 5 of 7 verified, `session.py` discarded, 8 of 10 faults, ledger 69,748 = 69,748** | same read-only query of `principal.db`, job `01M5FQ9Y8TMEPXYE86H408HMSS` | ✅ one run; not VERIFIED because the definition itself was not changed |
+| **Fifth live run (fixture `3d11f55`, dependency-aware verification): NoPR → UNVERIFIED, 4 of 6 verified, ledger 56,261 = 56,261 over 20 calls** | same read-only query, job `01M5FTFZPQ3VS87HF00F0RN2K5` | ✅ one run |
+| **Sixth live run: Done → VERIFIED, 6 of 6 verified, signature now `user, *, ttl=DEFAULT_TTL`, 9 of 9 call sites, 7 of 9 faults, ledger 19,855 = 19,855 over 10 calls** | same read-only query, job `01M5FTZVBPDH18S99QN4BW9ANB`; read the stored winning diffs under `runs/` | ✅ one run, after the fixture's tests were changed |
+| **Blast radius unchanged by the fixture change** | re-ran `principal radius` on the changed fixture | ✅ same 7 / 2 / 14 / 24 / 14 / 8 / 2 |
 | **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard | ✅ matches 2026-10-21 |
 | **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card | ✅ (the card is inconsistent on experts per token, so that is not claimed) |
 | **Rate limits: 60 RPM, 400k TPM, +20% / 15 min at ≥80%, 20× ceiling** | Nebius rate-limit docs (via search of the docs) | ✅ |

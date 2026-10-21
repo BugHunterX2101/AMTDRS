@@ -9,11 +9,18 @@ never be blocked on prose.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from principal.agents.contracts import ReportOutput
 from principal.config import Tier
 from principal.models.client import ModelClient
+
+logger = logging.getLogger(__name__)
+
+# Nano reasons before it answers. At 2000, live reporter calls stopped at the cap
+# with the JSON unfinished, and the template fallback shipped instead.
+REPORT_MAX_TOKENS = 6000
 
 PROMPT = (Path(__file__).parent / "prompts" / "reporter.md").read_text(encoding="utf-8")
 
@@ -142,11 +149,12 @@ async def compose_report(
     messages = [{"role": "user", "content": prompt}]
     try:
         completion = await client.complete(
-            tier, messages, schema=ReportOutput, temperature=0.3, job_id=job_id, max_tokens=2000,
-            role="reporter",
+            tier, messages, schema=ReportOutput, temperature=0.3, job_id=job_id,
+            max_tokens=REPORT_MAX_TOKENS, role="reporter",
         )
         return ReportOutput.model_validate_json(_strip_fences(completion.text))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("report for %s fell back to the template: %s", job_id, exc)
         return fallback_report(
             verified, discarded, uncovered, goal,
             characterisation_only=characterisation_only, characterisation_result=characterisation_result,

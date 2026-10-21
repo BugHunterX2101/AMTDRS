@@ -35,6 +35,9 @@ Rules:
 - `acceptance` is one sentence: how a reviewer confirms it worked.
 - `declared_removals`: list any exported symbol names this task's change removes or renames. A rename looks like a removal plus an addition to the verification system, so if you are renaming a call, you must declare the old name here or the change will be rejected as an undeclared removal.
 - `depends_on`: seqs of tasks that must land first, only when strictly necessary. Most interface-evolution tasks are independent — the target file's task, if the target's own signature must change, plus one task per consumer file.
+- Each task is tested on the original repository plus the changes of the tasks it depends on, so order them the way the change can be tested:
+  - If the change breaks existing calls (a parameter becomes keyword-only, is removed or renamed, or the return value changes), write each consumer task so the file works with both the old and the new interface (for example, pass the argument by keyword), and make the target file's task depend on every consumer task. Consumer tasks do not depend on it.
+  - If consumers need something the target does not provide yet (a new parameter or function), make each consumer task depend on the target file's task instead.
 - For every call site listed above that you do NOT create a task to fix, add one line to `unhandled` explaining why (for example: the call site is inside a file you were not given, or the usage pattern is ambiguous). An omission you do not explain is worse than an omission you do — the omission becomes an unmeasured silent regression.
 - If a heuristic (unresolved) call site plausibly reaches the target, either create a task for it and say so in the instruction, or add it to `unhandled` with your reasoning. Do not simply ignore it.
 

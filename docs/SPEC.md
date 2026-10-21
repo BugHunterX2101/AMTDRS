@@ -2,6 +2,8 @@
 
 2026-09-18 · @Someone
 
+> **Status: design-time document.** Budgets and figures here, such as graph build for 2,000 files and under 20 minutes per task, are targets set before the build, not measurements. Where the code differs, the code and the [README](../README.md) (live runs, verification ledger) are current.
+
 Implementation-level reference for Principal. The PRD decides what to build and why, the design document decides the structure and the key trade-offs, and this specifies the parts you need open on a second monitor while writing code: component contracts, algorithms, diagrams, file layout, configuration, error codes, budgets and the test plan.
 
 ## Scope and system overview

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from principal.agents.coder import generate_candidate, render_context_pack
@@ -72,6 +72,12 @@ class TaskContext:
     # job.py refuses to open a pull request while it is on regardless of how
     # this got set.
     bench_accept_without_gates: bool = False
+    # Task id -> the verified diffs of the tasks it depends on, applied before
+    # the candidate's own. Without it, the definition of a breaking change was
+    # tested against callers its dependencies had already updated, but on a tree
+    # where they had not been, and failed. Filled by WaveRunner; the winning diff
+    # stored for the task stays its own, so integration applies each change once.
+    base_patches: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -146,7 +152,8 @@ async def _run_sandbox_gate(
 
     try:
         verdict, run = await run_tests_gate(
-            ctx.sandbox, ctx.c0_image, diff.text, nodeids, timeout_s=ctx.sandbox_timeout_s,
+            ctx.sandbox, ctx.c0_image, ctx.base_patches.get(task.id, "") + diff.text, nodeids,
+            timeout_s=ctx.sandbox_timeout_s,
             on_operation=on_op,
         )
     except PrincipalError as exc:
@@ -559,10 +566,44 @@ class WaveRunner:
     async def run_waves(self, waves: list[list[Task]]) -> list[TaskResult]:
         sem = asyncio.Semaphore(self.max_parallel)
         results: list[TaskResult] = []
+        by_seq = {t.seq: t for wave in waves for t in wave}
+        settled: dict[int, TaskResult] = {}
         for wave in waves:
+            for t in wave:
+                self.ctx.base_patches[t.id] = _dependency_patch(t, by_seq, settled)
+
             async def bound(t: Task) -> TaskResult:
                 async with sem:
                     return await run_task(self.ctx, t, self.candidates_per_task)
             wave_results = await asyncio.gather(*(bound(t) for t in wave))
             results.extend(wave_results)
+            settled.update((r.task.seq, r) for r in wave_results)
         return results
+
+
+def _dependency_patch(task: Task, by_seq: dict[int, Task], settled: dict[int, TaskResult]) -> str:
+    """The verified diffs of everything `task` depends on, transitively, in seq order.
+
+    A discarded dependency contributes nothing: the task is then tested on a tree
+    without that change, as integration will build it. A dependency on the task's
+    own file is left out too, since both diffs are written against C0 and would
+    not apply one after the other.
+    """
+    seen: set[int] = set()
+    stack = list(task.depends_on)
+    while stack:
+        seq = stack.pop()
+        if seq in seen or seq not in by_seq:
+            continue
+        seen.add(seq)
+        stack.extend(by_seq[seq].depends_on)
+
+    parts = []
+    for seq in sorted(seen):
+        result = settled.get(seq)
+        if result is None or result.settled != "verified" or not result.diff_text:
+            continue
+        if result.task.target_file == task.target_file:
+            continue
+        parts.append(result.diff_text if result.diff_text.endswith("\n") else result.diff_text + "\n")
+    return "".join(parts)

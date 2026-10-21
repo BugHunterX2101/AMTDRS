@@ -108,6 +108,84 @@ def test_blank_context_line_without_leading_space_is_tolerated():
     assert "TAX_RATE: float = 0.2" in _apply(raw)
 
 
+REFRESH = (
+    "from src.auth import session\n"
+    "\n"
+    "\n"
+    "def refresh(user, ttl):\n"
+    "    return session.create(user, ttl)\n"
+    "\n"
+    "\n"
+    "def refresh_twice(user):\n"
+    "    first = session.create(user, 120)\n"
+    "    return session.create(first.user, 240)\n"
+)
+
+
+def _apply_refresh(body: str) -> str:
+    raw = f"<<<DIFF\n--- a/src/api/refresh.py\n+++ b/src/api/refresh.py\n{body}\nDIFF>>>"
+    diff = canonicalise(parse_diff(raw), "src/api/refresh.py", REFRESH)
+    return apply_to_text(REFRESH, list(diff.patch)[0]).new_text
+
+
+def test_context_with_fewer_blank_lines_than_the_file_is_located():
+    """Seen live from Nano: one blank line written where the file has two
+    between definitions. Every other line matched, and the reply was rejected."""
+    patched = _apply_refresh(
+        "@@\n"
+        " from src.auth import session\n"
+        " \n"
+        " def refresh(user, ttl):\n"
+        "-    return session.create(user, ttl)\n"
+        "+    return session.create(user, ttl=ttl)\n"
+        " \n"
+        " def refresh_twice(user):\n"
+        "-    first = session.create(user, 120)\n"
+        "-    return session.create(first.user, 240)\n"
+        "+    first = session.create(user, ttl=120)\n"
+        "+    return session.create(first.user, ttl=240)\n"
+        "@@"
+    )
+    expected = (
+        "from src.auth import session\n"
+        "\n"
+        "\n"
+        "def refresh(user, ttl):\n"
+        "    return session.create(user, ttl=ttl)\n"
+        "\n"
+        "\n"
+        "def refresh_twice(user):\n"
+        "    first = session.create(user, ttl=120)\n"
+        "    return session.create(first.user, ttl=240)\n"
+    )
+    assert patched.rstrip("\n") == expected.rstrip("\n"), "the file's own blank lines are kept"
+
+
+def test_a_blank_context_line_the_file_does_not_have_is_dropped():
+    patched = _apply_refresh(
+        "@@\n"
+        " def refresh(user, ttl):\n"
+        " \n"
+        "-    return session.create(user, ttl)\n"
+        "+    return session.create(user, ttl=ttl)"
+    )
+    assert "def refresh(user, ttl):\n    return session.create(user, ttl=ttl)\n" in patched
+
+
+def test_blank_tolerance_never_skips_a_line_with_content():
+    """Also seen live: a hunk that jumps from one call to the next and leaves out
+    `def refresh_twice(user):` in between. That is not a blank-line slip."""
+    with pytest.raises(DiffUnparseable):
+        _apply_refresh(
+            "@@\n"
+            "-    return session.create(user, ttl)\n"
+            "+    return session.create(user, ttl=ttl)\n"
+            " \n"
+            "-    first = session.create(user, 120)\n"
+            "+    first = session.create(user, ttl=120)"
+        )
+
+
 def test_file_without_trailing_newline_still_yields_applicable_diff():
     original = "a = 1\nb = 2"
     raw = "<<<DIFF\n--- a/x.py\n+++ b/x.py\n@@\n-a = 1\n+a = 10\nDIFF>>>"

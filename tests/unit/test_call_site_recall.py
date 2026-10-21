@@ -51,7 +51,7 @@ async def test_ground_truth_matches_a_manual_grep_of_the_fixture():
         text = path.read_text(encoding="utf-8")
         hits += len(re.findall(r"\bcreate\(", text)) - text.count("def create(")
     # 8 sites literally spelled `create(`. compat.py calls it as `make_session(`
-    # and registry.py through `fn(*args)`, so neither is counted by this grep —
+    # and registry.py through `fn(*args, **kwargs)`, so neither is counted by this grep —
     # which is exactly why the graph, not a grep, is the product.
     assert hits == 8
 

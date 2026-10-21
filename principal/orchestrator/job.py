@@ -533,6 +533,10 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
     # that precedes it in seq order.
     applied = [t for t in verified if t.id in diffs_by_task]
     diffs = [diffs_by_task[t.id] for t in applied]
+    # Baseline tests with nothing applied pass by construction, so an empty set
+    # must stop here rather than reach the sandbox and come back green.
+    if not diffs:
+        _stop_no_pr(store, events, job_id, "no verified task has a readable diff")
 
     assert job.baseline_image is not None
     c0_image = await sandbox.from_uuid(job.baseline_image)
@@ -554,6 +558,8 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
             store.update_task(dropped.id, state="discarded",
                                discard_reason="dropped at integration: conflicted with another patch")
             diffs = [diffs_by_task[t.id] for t in applied]
+            if not diffs:
+                _stop_no_pr(store, events, job_id, "the only verified diff conflicted at integration")
             run = await run_integration(
                 sandbox, c0_image, diffs, timeout_s=max(900, settings.sandbox_timeout_s * 2),
                 on_operation=on_op,

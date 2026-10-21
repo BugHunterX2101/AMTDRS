@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -148,23 +149,34 @@ class FakeSandbox:
                 # correct for the real sandbox (a Linux microVM). Git-for-Windows
                 # bash resolves a bare /work against its own install root
                 # (typically C:\Program Files\Git), which this process cannot
-                # write to. This substitution is a Windows-local-dev-only shim:
-                # it never runs against the real Contree sandbox, which has an
-                # actual /work mount and needs no rewriting.
+                # write to. This substitution is a local-only shim: it never
+                # runs against the real Contree sandbox, which has an actual
+                # /work mount and needs no rewriting.
+                #
+                # Linux needs the same rewrite for a different reason: a CI
+                # user cannot create /work at the filesystem root, and the
+                # baseline script now fails fast (exit 97) when its clone does
+                # not land instead of carrying on in whatever directory it
+                # happened to start in. Running everywhere also keeps the two
+                # platforms executing the same script, which is the point of a
+                # fake.
+                #
+                # The same shim applies to /tmp: bash resolves it one way, a
+                # native (non-MSYS) python.exe spawned as a child interprets a
+                # bare leading-slash path relative to the current drive root
+                # instead, so the two halves of one script can silently
+                # disagree about where a file landed. Pointing both at one
+                # explicit path per run removes the ambiguity, and stops
+                # concurrent runs sharing one /tmp/cov.json.
+                work_dir = result_dir / "work"
+                work_dir.mkdir(parents=True, exist_ok=True)
+                tmp_dir = result_dir / "tmp"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
                 if os.name == "nt":
-                    work_dir = result_dir / "work"
-                    work_dir.mkdir(parents=True, exist_ok=True)
-                    script = script.replace("/work", _to_msys_path(work_dir))
-                    # The same shim, and for the same reason, applies to /tmp:
-                    # bash resolves it one way, a native (non-MSYS) python.exe
-                    # spawned as a child interprets a bare leading-slash path
-                    # relative to the current drive root instead, so the two
-                    # halves of one script can silently disagree about where a
-                    # file landed. Pointing both at one explicit Windows path
-                    # removes the ambiguity.
-                    tmp_dir = result_dir / "tmp"
-                    tmp_dir.mkdir(parents=True, exist_ok=True)
-                    script = script.replace("/tmp/", _to_msys_path(tmp_dir) + "/")
+                    work_path, tmp_path = _to_msys_path(work_dir), _to_msys_path(tmp_dir)
+                else:
+                    work_path, tmp_path = work_dir.as_posix(), tmp_dir.as_posix()
+                script = _localise_paths(script, work_path, tmp_path)
                 # Run through an explicit bash -c rather than
                 # create_subprocess_shell, which on Windows goes through cmd.exe
                 # and mangles a Program Files path with spaces in `executable=`.
@@ -235,6 +247,31 @@ async def _reap(proc: asyncio.subprocess.Process | None) -> None:
             proc.kill()
     with contextlib.suppress(TimeoutError, ProcessLookupError):
         await asyncio.wait_for(proc.wait(), timeout=5)
+
+
+_SANDBOX_PATHS = re.compile(r"(?<![A-Za-z0-9_.\-/])(?:(/work)(?![A-Za-z0-9_])|(/tmp/))")
+
+
+def _localise_paths(script: str, work: str, tmp: str) -> str:
+    """Point the sandbox's /work and /tmp/ at per-run directories on this machine.
+
+    One regex pass, never two `str.replace` calls: a pytest temp directory on Linux
+    is itself under /tmp/, so replacing /work first and /tmp/ second rewrote the
+    substituted path a second time. The guards keep it to the standalone paths the
+    scripts mean (`cd /work`, `/tmp/cov.json`) and off look-alikes such as
+    `src/workers/` or `/workspace`, which the old blanket replace also corrupted.
+
+    The `git clone` line is the exception for /tmp/: its source is the caller's
+    repository, which on Linux is a pytest directory under /tmp/ and is not the
+    sandbox's scratch space. Rewriting it made the clone fail on exactly that machine.
+    """
+    def one_line(line: str) -> str:
+        keep_tmp = line.lstrip().startswith("git clone")
+        return _SANDBOX_PATHS.sub(
+            lambda m: work if m.group(1) else (m.group(0) if keep_tmp else tmp + "/"), line,
+        )
+
+    return "\n".join(one_line(line) for line in script.split("\n"))
 
 
 def _to_msys_path(path: Path) -> str:

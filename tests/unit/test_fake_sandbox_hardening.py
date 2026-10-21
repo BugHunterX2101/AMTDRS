@@ -83,3 +83,59 @@ async def test_a_cancelled_run_is_killed_and_leaves_no_debris(sandbox):
 
 def test_the_fake_labels_its_provenance(sandbox):
     assert sandbox.execution_mode == "local"
+
+
+# -- the /work and /tmp/ rewrite ------------------------------------------------
+#
+# The platform has a real /work. A machine running the fake does not (a Linux CI
+# user cannot create it, Git-for-Windows bash resolves it somewhere unwritable),
+# so the scripts are rewritten to per-run directories before they execute.
+
+
+def test_standalone_sandbox_paths_are_pointed_at_the_run_directory():
+    from principal.sandbox.fake import _localise_paths
+
+    script = "cd /work && echo x > /tmp/cov.json && pytest --cov-report=json:/tmp/cov.json"
+    out = _localise_paths(script, "/runs/a/work", "/runs/a/tmp")
+
+    assert out == (
+        "cd /runs/a/work && echo x > /runs/a/tmp/cov.json"
+        " && pytest --cov-report=json:/runs/a/tmp/cov.json"
+    )
+
+
+def test_a_substituted_path_is_never_rewritten_a_second_time():
+    from principal.sandbox.fake import _localise_paths
+
+    # A pytest temp directory on Linux is itself under /tmp/. Two sequential
+    # replaces turned the /work path into a mangled one on exactly that machine.
+    work = "/tmp/pytest-of-runner/pytest-0/run/work"
+    out = _localise_paths("cd /work", work, "/tmp/pytest-of-runner/pytest-0/run/tmp")
+
+    assert out == f"cd {work}"
+
+
+def test_the_clone_source_is_the_callers_path_not_sandbox_scratch():
+    from principal.sandbox.fake import _localise_paths
+
+    # On Linux a pytest repository lives under /tmp/. It is the clone's source, so
+    # it must survive; only the clone's destination (/work) is the sandbox's.
+    script = "git clone --filter=blob:none /tmp/pytest-of-u/repo /work 2>&1 | tail -3\ncat /tmp/cov.json"
+    out = _localise_paths(script, "/runs/a/work", "/runs/a/tmp")
+
+    assert out == (
+        "git clone --filter=blob:none /tmp/pytest-of-u/repo /runs/a/work 2>&1 | tail -3\n"
+        "cat /runs/a/tmp/cov.json"
+    )
+
+
+@pytest.mark.parametrize("text", [
+    "src/workers/cleanup.py",
+    "/workspace/project",
+    "/workflow/run",
+    "https://example.test/tmp/readme",
+])
+def test_look_alike_paths_are_left_alone(text):
+    from principal.sandbox.fake import _localise_paths
+
+    assert _localise_paths(f"cat {text}", "/w", "/t") == f"cat {text}"

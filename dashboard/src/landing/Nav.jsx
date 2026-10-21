@@ -11,6 +11,28 @@ const LINKS = [
 
 export function Nav() {
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState("");
+
+  // The link for whichever section crosses the middle of the viewport is
+  // marked current. A thin band rather than a threshold, so exactly one wins,
+  // and sections with no link (the hero, guardrails) clear the mark.
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const id = `#${e.target.id}`;
+          if (e.isIntersecting) setActive(id);
+          else setActive((a) => (a === id ? "" : a));
+        }
+      },
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    for (const l of LINKS) {
+      const el = document.querySelector(l.href);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, []);
 
   // Escape closes the sheet, matching the console's evidence drawer so the two
   // surfaces behave the same way under the keyboard.
@@ -31,7 +53,7 @@ export function Nav() {
 
         <div className="nav-links">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href}>
+            <a key={l.href} href={l.href} aria-current={active === l.href ? "location" : undefined}>
               {l.label}
             </a>
           ))}

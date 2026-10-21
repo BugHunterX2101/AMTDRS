@@ -274,12 +274,30 @@ main,
 }
 
 .nav-links a {
+  position: relative;
   font-size: 14px;
   color: var(--muted);
   transition: color 0.18s var(--ease);
 }
-.nav-links a:hover {
+.nav-links a:hover,
+.nav-links a[aria-current] {
   color: var(--text);
+}
+/* The current-section mark. Scaled, not resized, so it never moves a word. */
+.nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--green);
+  transform: scaleX(0);
+  transition: transform 0.3s var(--ease);
+}
+.nav-links a[aria-current]::after {
+  transform: scaleX(1);
 }
 
 .nav-spacer {
@@ -409,6 +427,41 @@ main,
   font-size: 13px;
 }
 
+/* A light that runs round the inside of the button's edge. The square behind
+   is rotated, not repainted, so the whole effect stays on the compositor. */
+.btn--ring {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.btn--ring::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  left: 50%;
+  top: 50%;
+  width: 300%;
+  aspect-ratio: 1;
+  background: conic-gradient(transparent 0 70%, #d6ffdc 86%, transparent 100%);
+  animation: ring-spin 3.6s linear infinite;
+}
+.btn--ring::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 2px;
+  border-radius: 7px;
+  background: inherit;
+}
+@keyframes ring-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0turn);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(1turn);
+  }
+}
+
 /* ---------------------------------------------------------------- badges -- */
 
 .badge {
@@ -526,11 +579,97 @@ main,
   color: var(--muted);
 }
 
+/* ------------------------------------------------------- command chip -- */
+
+.cmd {
+  margin-top: var(--s4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 5px 5px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: rgba(11, 13, 16, 0.78);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.cmd-prompt {
+  color: var(--green);
+}
+.cmd code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+  /* One click selects all of it, the fallback where the clipboard is denied. */
+  user-select: all;
+}
+.cmd-copy {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.cmd-copy:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+.cmd-copy svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ------------------------------------------------------- 3D card stack -- */
+
+/* Real perspective, no WebGL: three panels at different depths, tilted a
+   little at rest so the depth reads on touch screens too, and following a
+   fine pointer (Hero.jsx) everywhere else. Transform only. */
+.stage {
+  perspective: 1400px;
+  padding-top: 36px;
+}
+.stack {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx, 4deg)) rotateY(var(--ry, -8deg));
+  transition: transform 0.6s var(--ease);
+  will-change: transform;
+}
+.stack-ghost {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+.stack-ghost--1 {
+  transform: translate3d(var(--fan, 12px), -18px, -40px);
+  background: #15141d;
+  border-color: rgba(163, 113, 247, 0.45);
+}
+.stack-ghost--2 {
+  transform: translate3d(calc(var(--fan, 12px) * 2), -36px, -80px);
+  background: #11151c;
+  border-color: rgba(88, 166, 255, 0.35);
+}
+
 /* ------------------------------------------------------------- trust bar -- */
 
 .trustbar {
   position: relative;
   z-index: 1;
+  /* The hero note otherwise ran straight into this bar's top rule. */
+  margin-top: var(--s7);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--bg-2);
@@ -966,6 +1105,30 @@ main,
 
 .bento .span-2 {
   grid-column: span 2;
+}
+
+/* Pointer spotlight (Features.jsx sets --mx/--my). Hover devices only; the
+   copy sits above the light so the text is never tinted. */
+.bento .card-body {
+  position: relative;
+}
+@media (hover: hover) {
+  .bento .card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s var(--ease);
+    background: radial-gradient(
+      360px circle at var(--mx, 50%) var(--my, 50%),
+      rgba(63, 185, 80, 0.09),
+      transparent 65%
+    );
+  }
+  .bento .card:hover::before {
+    opacity: 1;
+  }
 }
 
 .ico {
@@ -1416,11 +1579,32 @@ table.compare td:nth-child(n + 2) {
   justify-content: space-between;
 }
 
+/* The name set large and cut off by the page's bottom edge, fading out. Text,
+   not an image: no request, and it scales with the viewport. */
+.footer-mark {
+  margin-top: var(--s7);
+  margin-bottom: calc(var(--s8) * -1);
+  font-size: clamp(64px, 17vw, 228px);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 0.78;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+  background: linear-gradient(to bottom, rgba(230, 233, 239, 0.16), rgba(230, 233, 239, 0) 88%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* ------------------------------------------------------------ responsive -- */
 
 @media (max-width: 1024px) {
   .hero-inner {
-    grid-template-columns: 1fr;
+    /* minmax(0, …) as on desktop: a bare 1fr let the command chip's unbroken
+       line set the column's minimum and push the hero past the screen edge. */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--s7);
   }
   .roi {
@@ -1459,6 +1643,10 @@ table.compare td:nth-child(n + 2) {
   }
   .nav-github span {
     display: none;
+  }
+  /* Full-width card: a sideways fan would run past the 16px gutter. */
+  .stack {
+    --fan: 0px;
   }
   .section {
     padding: var(--s8) 0;

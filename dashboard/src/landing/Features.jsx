@@ -43,6 +43,16 @@ const CARDS = [
   },
 ];
 
+// The hovered card carries a soft light under the pointer. Two CSS variables on
+// one element per move; the gradient itself is drawn in CSS.
+function spotlight(e) {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  card.style.setProperty("--mx", `${e.clientX - r.left}px`);
+  card.style.setProperty("--my", `${e.clientY - r.top}px`);
+}
+
 export function Features() {
   const [ref, shown] = useReveal();
   return (
@@ -57,7 +67,7 @@ export function Features() {
           model gets to make, the fewer places the system can be wrong.
         </p>
 
-        <div className="bento" style={{ marginTop: 40 }}>
+        <div className="bento" style={{ marginTop: 40 }} onPointerMove={spotlight}>
           {CARDS.map((c) => (
             <div className={`card${c.span ? " span-2" : ""}`} key={c.title}>
               <div className="card-body">

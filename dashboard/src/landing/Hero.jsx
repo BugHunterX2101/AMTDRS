@@ -1,6 +1,9 @@
-import { ArrowRight, Github, Play } from "./icons";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Check, Copy, Github, Play } from "./icons";
 import { ForkRaceViz } from "./ForkRaceViz";
 import { Backdrop } from "../Backdrop";
+
+const CLONE = "git clone https://github.com/BugHunterX2101/AMTDRS.git";
 
 const TRUST = [
   { k: "Track", v: "Coding & Agentic Engineering" },
@@ -10,6 +13,56 @@ const TRUST = [
 ];
 
 export function Hero() {
+  const stage = useRef(null);
+  const [copied, setCopied] = useState(false);
+
+  // The card stack leans toward the pointer. Only a fine pointer that hovers
+  // gets it (a touch tap would leave the stack stuck mid-tilt), and only with
+  // motion allowed. Writes are two CSS variables per frame; the transform runs
+  // on the compositor, so nothing here touches layout.
+  useEffect(() => {
+    const el = stage.current;
+    const ok = "(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
+    if (!el || !window.matchMedia(ok).matches) return undefined;
+    let rect = null;
+    let frame = 0;
+    const onEnter = () => {
+      rect = el.getBoundingClientRect();
+    };
+    const onMove = (e) => {
+      if (!rect) rect = el.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        el.style.setProperty("--rx", `${(-y * 8).toFixed(2)}deg`);
+        el.style.setProperty("--ry", `${(x * 10).toFixed(2)}deg`);
+      });
+    };
+    const onLeave = () => {
+      cancelAnimationFrame(frame);
+      rect = null;
+      el.style.removeProperty("--rx");
+      el.style.removeProperty("--ry");
+    };
+    el.addEventListener("pointerenter", onEnter);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener("pointerenter", onEnter);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerleave", onLeave);
+    };
+  }, []);
+
+  // No clipboard (an insecure origin) leaves the command selectable by hand.
+  const copy = () =>
+    navigator.clipboard?.writeText(CLONE).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }, () => {});
+
   return (
     <header className="hero" id="top">
       <Backdrop from="#a371f7" to="#3fb950" alpha={0.4} />
@@ -48,6 +101,18 @@ export function Hero() {
               <ArrowRight aria-hidden="true" />
             </a>
           </div>
+          <div className="cmd">
+            <span className="cmd-prompt" aria-hidden="true">$</span>
+            <code>{CLONE}</code>
+            <button
+              type="button"
+              className="cmd-copy"
+              onClick={copy}
+              aria-label={copied ? "Copied" : "Copy the clone command"}
+            >
+              {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            </button>
+          </div>
           <p className="hero-note">
             No sign-up: the hosted console runs a bundled repo through a real green
             baseline, code graph and blast radius. Generating patches needs your own
@@ -55,17 +120,25 @@ export function Hero() {
           </p>
         </div>
 
-        <div className="card" aria-label="Simulated candidate race">
-          <div className="card-head">
-            <span className="dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-            <h3>fork race — task 07 · auth.session.create</h3>
-          </div>
-          <div className="card-body">
-            <ForkRaceViz compact />
+        {/* The two panels behind the race are the candidates' other sandboxes:
+            the same parallel fork the card animates, given depth. */}
+        <div className="stage" ref={stage}>
+          <div className="stack">
+            <div className="stack-ghost stack-ghost--2" aria-hidden="true" />
+            <div className="stack-ghost stack-ghost--1" aria-hidden="true" />
+            <div className="card" aria-label="Simulated candidate race">
+              <div className="card-head">
+                <span className="dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <h3>fork race — task 07 · auth.session.create</h3>
+              </div>
+              <div className="card-body">
+                <ForkRaceViz compact />
+              </div>
+            </div>
           </div>
         </div>
       </div>

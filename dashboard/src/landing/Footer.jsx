@@ -68,6 +68,10 @@ export function Footer() {
           <span>© 2026 Principal. Source available under Apache License 2.0.</span>
           <span>Built on Nebius Token Factory · NVIDIA Nemotron 3 · not affiliated with either.</span>
         </div>
+
+        <div className="footer-mark" aria-hidden="true">
+          Principal
+        </div>
       </div>
     </footer>
   );

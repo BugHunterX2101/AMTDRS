@@ -23,7 +23,7 @@ export function Finale() {
             diff one click away.
           </p>
           <div className="hero-actions">
-            <a className="btn btn--primary btn--lg" href="/app/">
+            <a className="btn btn--primary btn--lg btn--ring" href="/app/">
               Open the console
               <ArrowRight aria-hidden="true" />
             </a>

@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from principal.config import Protocol, Tier
 from principal.db.store import Store
-from principal.errors import Code, ModelEmptyResponse, PrincipalError
+from principal.errors import Code, ConfigMissing, ModelEmptyResponse, PrincipalError
 from principal.models.budget import TokenBudget, estimate_tokens
 from principal.models.cache import CachedCompletion, DiskCache, cache_key
 from principal.models.protocols import build_request, extract_structured, text_of
@@ -78,6 +78,9 @@ class ModelClient:
         self.forced_protocol = forced_protocol
         self.cache = cache
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key or "unset")
+        # The placeholder above keeps the SDK constructible. Sent to the provider it
+        # comes back as an opaque 401 mid-job, so a missing key is refused up front.
+        self._has_key = bool(api_key)
         self.reasoning_fallback_count = 0
         self.protocol_downgrades = 0
         self.rate_limit_backoffs = 0
@@ -210,6 +213,8 @@ class ModelClient:
         self, model: str, messages: list[dict[str, Any]], protocol: Protocol,
         schema: type[BaseModel] | None, temperature: float, max_tokens: int,
     ) -> tuple[Completion, Protocol | None, tuple[int, int]]:
+        if not self._has_key:
+            raise ConfigMissing("NEBIUS_API_KEY")
         downgraded_to: Protocol | None = None
         current = protocol
         attempts = 0

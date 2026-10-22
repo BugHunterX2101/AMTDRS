@@ -276,3 +276,18 @@ def test_a_job_recorded_before_the_ledger_gets_no_breakdown(store, job_id):
     """Nothing was recorded, so nothing is claimed. A missing ledger is not 'zero'."""
     store.add_tokens(job_id, 26_597)
     assert _model_calls(store, job_id, 26_597) is None
+
+
+async def test_a_missing_key_is_refused_before_any_request_and_costs_nothing(store, events, job_id):
+    """The hosted demo has no credentials. The call used to go out with a placeholder
+    key and come back as the provider's 401, which a user then read as a platform fault."""
+    client = ModelClient(store=store, base_url="http://invalid.test/v1/", api_key="",
+                         model_ids=MODELS, capability={}, events=events)
+
+    with pytest.raises(PrincipalError) as raised:
+        await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="planner")
+
+    assert raised.value.code is Code.CONFIG_MISSING
+    assert "NEBIUS_API_KEY" in raised.value.message
+    assert _calls(store, job_id) == []
+    assert store.get_job(job_id).tokens_spent == 0

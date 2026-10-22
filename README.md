@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-22**: `pytest -q` → **470 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-22**: `pytest -q` → **471 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -603,7 +603,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 470 tests, unit + integration
+make test          # or: pytest — 471 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -800,7 +800,9 @@ The causes found, each measured on live Nemotron output for one task (`src/prici
 
 One more thing the discards turned out not to be: most of the Nano samples that still failed to apply failed on merit, with a typo in a context line such as `TAx_RATE`, a hallucinated context line, or a stray space after the `-` marker. Those are rejected on purpose and the parser was not loosened to accept them.
 
-Not checked. Linux CI has not run on these commits, because nothing has been pushed. `characteriser.py` still caps its output at 3,000 tokens, so the truncation cause is fixed for the coder and repairer and not claimed fixed everywhere. The Spotlighting regression was measured on one task only, and the pre-Spotlighting comparison used the earlier prompt from commit `04e9036`.
+A further full run went through the HTTP API instead of the harness (`principal serve` with credentials, `POST /jobs`, `PRINCIPAL_REQUIRE_LIVE` on, `/healthz` reporting `ContreeSandbox` with inference and sandbox verified): the same `mini_repo` job ended **VERIFIED, clean**, with 6 of 6 tasks verified (including `src/legacy/compat.py`), 63,619 tokens, $0.0115 of sandbox cost and an injected-fault score of 78% against the 60% floor. It is one run and is not a rate.
+
+Not checked. The Linux CI result for these commits has not been read, because the tool for reading it was not available when they were pushed. `characteriser.py` still caps its output at 3,000 tokens, so the truncation cause is fixed for the coder and repairer and not claimed fixed everywhere. The Spotlighting regression was measured on one task only, and the pre-Spotlighting comparison used the earlier prompt from commit `04e9036`.
 
 ### Deploying the hosted demo
 
@@ -920,7 +922,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            470 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            471 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -982,7 +984,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **470 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 470 passed in 252 s |
+| **471 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 471 passed in 348 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | Confirmed: 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |

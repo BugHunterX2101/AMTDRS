@@ -294,7 +294,7 @@ export default function App() {
             <section className="panel" data-accent="pipeline" data-o="2">
               <PanelHeader>Pipeline</PanelHeader>
               <div className="body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <Pipeline state={job.state} reached={job.reached} />
+                <Pipeline state={job.state} reached={job.reached} visited={job.visited} />
                 <Stats job={job} status={status} />
                 {job.baseline && (
                   <div className="hint">

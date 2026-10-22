@@ -414,6 +414,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
   border-color: color-mix(in srgb, var(--blue) 50%, transparent);
   background: color-mix(in srgb, var(--blue) 7%, transparent);
 }
+.stage.skipped { border-style: dashed; opacity: 0.55; }
 .stage.failed { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 /* A correct refusal (NoPR, NoSafetyNet) is not an error and must not read as
    one — amber, the same semantics the outcome card and dot-legend already use

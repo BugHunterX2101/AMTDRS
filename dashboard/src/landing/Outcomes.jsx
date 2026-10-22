@@ -37,7 +37,7 @@ const BUNDLE = [
   "The verdict and every reason behind it",
   "Each gate's result, including what was not checked",
   "Every attempt's diff and test log, with SHA-256 hashes",
-  "Whether it ran LIVE on the real sandbox, or on a local stand-in",
+  "Whether it ran LIVE on Nebius Sandboxes, or on a local stand-in",
   "The command that reproduces the run",
 ];
 

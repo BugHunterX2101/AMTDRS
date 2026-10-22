@@ -156,16 +156,17 @@ const STAGES = [
 const STAGE_LABEL = { CleanupPlanning: "Cleanup planning", CleanupExecuting: "Cleanup executing" };
 const TERMINAL_STATES = ["Done", "NoPR", "Aborted", "NoSafetyNet"];
 
-// A stopped job marks the stages it finished, and the one it stopped in with the
-// colour of how it stopped; the stages it never reached stay plain.
-export function Pipeline({ state, reached }) {
+// Stages the job finished are green, and the one a stopped job stopped in takes
+// the colour of how it stopped. A stage it passed without entering (no cleanup
+// needed, say) is marked skipped; the stages it never reached stay plain.
+export function Pipeline({ state, reached, visited = [] }) {
   const terminal = TERMINAL_STATES.includes(state);
-  const idx = STAGES.indexOf(terminal ? reached : state);
+  const idx = state === "Done" ? STAGES.length : STAGES.indexOf(terminal ? reached : state);
   return (
     <div className="pipeline">
       {STAGES.map((s, i) => {
         let cls = "stage";
-        if (state === "Done" || (idx >= 0 && i < idx)) cls += " done";
+        if (i < idx) cls += visited.includes(s) ? " done" : " skipped";
         else if (i === idx) cls += terminal ? (state === "Aborted" ? " failed" : " nopr") : " active";
         return (
           <span key={s} className={cls}>

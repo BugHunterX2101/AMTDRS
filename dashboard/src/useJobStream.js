@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const EMPTY = {
   state: "idle",
   reached: null, // the last working stage entered, kept once the job stops
+  visited: [],   // every working stage entered; a job may skip some
   stopReason: null,
   baseline: null,
   graph: null,
@@ -41,6 +42,7 @@ function reduce(s, ev) {
         ...s,
         state: p.state,
         reached: TERMINAL.has(p.state) ? s.reached : p.state,
+        visited: TERMINAL.has(p.state) || s.visited.includes(p.state) ? s.visited : [...s.visited, p.state],
         stopReason: p.reason ?? s.stopReason,
       };
 

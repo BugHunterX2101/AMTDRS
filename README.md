@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-22**: `pytest -q` → **465 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on commit `93879e5` passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-22**: `pytest -q` → **470 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -603,7 +603,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 465 tests, unit + integration
+make test          # or: pytest — 470 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -768,7 +768,39 @@ make bench         # the same run without the credential check first
 | B | 2 | 0 | 1 | 1 | 0 | — | 50,084 / 26,281 |
 | C | 2 | 0 | 1 | 1 | 0 | — | 81,736 / 38,298 |
 
-No arm reached VERIFIED on either task, so there is no verified rate to compare. The result is two tasks and one run per cell: it shows nothing about which arm is better, and the differences in tokens and time are within what one run can show. The false-accepts column is `—` everywhere because no run claimed *verified*, so the oracle on `weak_repo` was never exercised live. It is covered only by the unit tests in `tests/unit/test_bench_oracle.py`. Causes recorded: the mini_repo B and C runs ended UNVERIFIED with caveats open; the weak_repo B and C runs ended UNVERIFIED because a task was discarded (1 of 3, over the 30% cap); arm A failed on both tasks (2 of 6 and 3 of 4 tasks discarded). Why the tasks were discarded has not been investigated.
+No arm reached VERIFIED on either task, so there is no verified rate to compare. The result is two tasks and one run per cell: it shows nothing about which arm is better, and the differences in tokens and time are within what one run can show. The false-accepts column is `—` everywhere because no run claimed *verified*, so the oracle on `weak_repo` was never exercised live. It is covered only by the unit tests in `tests/unit/test_bench_oracle.py`. Causes recorded: the mini_repo B and C runs ended UNVERIFIED with caveats open; the weak_repo B and C runs ended UNVERIFIED because a task was discarded (1 of 3, over the 30% cap); arm A failed on both tasks (2 of 6 and 3 of 4 tasks discarded). The causes of the discards were then investigated, and the second run below follows the fixes.
+
+**Live benchmark, 2026-10-22, after the fixes** (same harness, real Nebius sandbox and real inference, one run per cell, code at commit `d5c15f9`):
+
+| Arm | Attempted | Verified | Unverified | Failed on merit | Infrastructure exclusions | False accepts | Tokens (mini_repo / weak_repo) |
+|---|---|---|---|---|---|---|---|
+| A | 2 | 1 | 0 | 1 | 0 | 0/1 | 36,071 / 42,630 |
+| B | 2 | 0 | 2 | 0 | 0 | — | 25,539 / 19,081 |
+| C | 2 | 1 | 1 | 0 | 0 | — | 28,354 / 28,482 |
+
+What each cell was:
+
+- **mini_repo, arm C: VERIFIED, clean.** All six planned tasks were verified, including the one that changes `create` itself, and the audits left nothing open. This is the first VERIFIED outcome in the benchmark. Arm B ended UNVERIFIED with 2 of 6 tasks discarded, and arm A failed with 2 of 6 discarded (both over the 30% cap).
+- **weak_repo, arm C: UNVERIFIED, caveats open, and that is the fixture working.** All five planned tasks were verified, and the run then stopped short of VERIFIED on two unexercised dynamic dispatches in `src/reports.py` and an injected-fault score of 0.0 against a floor of 0.6 for the changed lines. This repository exists to show a green change that still cannot be called safe. Arm B ended UNVERIFIED with 2 of 5 tasks discarded.
+- **weak_repo, arm A: VERIFIED, 0 false accepts of 1 checked.** Arm A has no gates, so the harness counts a green test run as its claim. The independent oracle checked that claim and did not reject it. This is the first time the oracle ran live. No gated arm claimed VERIFIED on `weak_repo`, so the oracle has not yet checked a claim made by arm B or C, and the false-accept rate of the gated arms is still unmeasured.
+
+How the cells were assembled. The `weak_repo` cells are from a rerun, because the first pass at this commit lost its network (a DNS failure, `getaddrinfo failed`) and aborted or emptied all three arms. In the rerun, arm B aborted before any sandbox run with a sandbox API timeout, which the product reports as `exceeded 0s` because the SDK gives no duration. Arm B was run again alone and produced the cell above. The harness files such aborts as infrastructure and they are not counted as failures of the patch; the aborted passes are not in the table.
+
+What this shows and does not show. Each cell is one run on two tasks. The three mini_repo arms of the first pass replayed one cached planner response (identical token counts), so the plan is one sample, not three. A single VERIFIED cell cannot rank arms, and it does not show which of the fixes below produced it. What it does show is that the tasks were being lost for specific, reproducible reasons that are now fixed.
+
+The causes found, each measured on live Nemotron output for one task (`src/pricing.py`, a dozen or so samples per condition, so indicative and not rates):
+
+| Cause | What was measured | Fix |
+|---|---|---|
+| Nano was cut off before the diff | At a 3,000-token output cap, 4 of 6 calls ended on the cap, 4 of 12 at 6,000, 1 of 12 at 10,000. Nano reasons before it answers, and the reasoning counts against the cap | Every tier gets 10,000 tokens |
+| The Spotlighting fence leaked into the reply | With the `<<<...>>>` fence, 8 of 16 Nano and 0 of 12 Super replies ended in the exact `DIFF>>>` closer, against 12 of 16 and 4 of 12 on the unfenced prompt. Models closed with `<<<END_DIFF>>>` or `<<<DIFF>>`, leaving no block to parse | The fence is now `==== BEGIN/END UNTRUSTED REPO DATA ====`, which shares no characters with the sentinels (12 of 16 and 7 of 12). A tolerant parser was tried offline and gained nothing on those samples, so the parser is unchanged |
+| A repair with nothing to repair | The Repairer is told the failure, not the goal. When every first-round candidate failed to parse there was no diff to show it, and both Super repairs were spent blind | With no diff to show, Super takes the task as a coder. This is covered by a unit test and was not exercised in either live run |
+| A misleading repair prompt | It said the shown file already had the failed patch applied. It is the file before the patch | The wording now says so |
+| An aliased call site left out of the plan | The planner saw `compat.py:7 calls make_session` and called it "unclear if it wraps `create`", although the graph had resolved it to `create`. Leaving it out made the task for `create` unable to pass | The call-site line now says it is the target imported under another name. Fresh planner samples planned `compat.py` 6 of 6 times with and without the note, so no gain is shown, and the omission was seen once |
+
+One more thing the discards turned out not to be: most of the Nano samples that still failed to apply failed on merit, with a typo in a context line such as `TAx_RATE`, a hallucinated context line, or a stray space after the `-` marker. Those are rejected on purpose and the parser was not loosened to accept them.
+
+Not checked. Linux CI has not run on these commits, because nothing has been pushed. `characteriser.py` still caps its output at 3,000 tokens, so the truncation cause is fixed for the coder and repairer and not claimed fixed everywhere. The Spotlighting regression was measured on one task only, and the pre-Spotlighting comparison used the earlier prompt from commit `04e9036`.
 
 ### Deploying the hosted demo
 
@@ -888,7 +920,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            465 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            470 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -950,7 +982,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **465 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 465 passed in 250 s |
+| **470 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 470 passed in 252 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | Confirmed: 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |

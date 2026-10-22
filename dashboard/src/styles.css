@@ -99,7 +99,7 @@ body::before {
 
 /* The room takes the colour of the verdict. The five moods are static
    gradients stacked in one layer, and a change is an opacity crossfade. Over
-   them runs the code-graph field (src/field), toned by the same mood: blue and
+   them runs the gate cascade (src/field), toned by the same mood: blue and
    busy while candidates race, then the verdict's colour. An earlier full-screen
    WebGL layer here was expensive because every panel blurred what was behind
    it; panels are solid now, so the field costs only its own 30 fps draw. */

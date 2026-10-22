@@ -15,7 +15,7 @@ import { Field } from "../field/Field";
 export default function Landing() {
   return (
     <>
-      <Field />
+      <Field gain={1.4} />
       <a className="skip-link" href="#main">
         Skip to main content
       </a>

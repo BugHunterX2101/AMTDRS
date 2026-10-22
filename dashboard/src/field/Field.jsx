@@ -6,7 +6,7 @@ const STILL = "(prefers-reduced-motion: reduce)";
 const LEAN = "(hover: hover) and (pointer: fine)";
 
 /**
- * The code-graph field behind a page. `tone` is one of fieldScene.js's TONES and can
+ * The gate cascade behind a page. `tone` is one of fieldScene.js's TONES and can
  * change at any time (the console passes the live job's mood); `gain` scales its
  * brightness for denser pages. The frame loop writes to the canvas only, so the
  * field never re-renders React.

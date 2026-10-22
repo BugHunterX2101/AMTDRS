@@ -283,7 +283,7 @@ main {
 /* ------------------------------------------------------------------ stage -- */
 
 /* The hero's replay canvas lives here, full-bleed behind the headline and
-   confined to the hero. The quieter code-graph field behind the whole page is
+   confined to the hero. The gate cascade behind the whole page is
    a separate layer (see "field"). */
 .hero-stage {
   position: absolute;
@@ -329,9 +329,9 @@ main,
 
 /* ------------------------------------------------------------------ field -- */
 
-/* The code-graph field (src/field) behind every section. Dim by design: it sits
-   under body copy, so its lines stay near the grain's level and only the moving
-   light and the blast radius rise above it. Cards are solid and cover it. */
+/* The gate cascade (src/field) behind every section. Its light is in the
+   particles, the rims and the two stars; the space between stays the page's
+   own dark, and the cards are solid, so body copy keeps its contrast. */
 .field {
   position: fixed;
   inset: 0;

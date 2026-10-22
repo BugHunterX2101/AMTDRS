@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 const EVERY_MS = 60_000;
+// /healthz names the sandbox class; say which platform that is.
+const SANDBOX = { ContreeSandbox: "Nebius Sandboxes", FakeSandbox: "the in-process stand-in" };
 
 /**
  * What the hosted service reports about itself, right now.
@@ -46,10 +48,11 @@ export function LiveStatus() {
   }, []);
 
   const time = s.at?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const sandbox = SANDBOX[s.sandbox] || s.sandbox;
   const label = {
     checking: "Checking the hosted service…",
-    live: `Live now · ${s.sandbox} and Token Factory verified`,
-    standin: `Hosted service is up, not live (${s.sandbox})`,
+    live: "Live now · Token Factory and Nebius Sandboxes verified",
+    standin: `Hosted service is up, not live (sandbox: ${sandbox})`,
     down: "Hosted service did not answer (it may be waking up)",
   }[s.kind];
 

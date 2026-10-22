@@ -7,8 +7,10 @@
  * most die at the first gates, where rejection is free. Each gate passed turns
  * a survivor greener, and below the last one the survivors converge into a
  * single beam that lands in the merge: the verified change. A star marks the
- * planner at the top and another the merge at the bottom. The page scrolls
- * the camera down the cascade; the console tones it from the live job.
+ * planner at the top and another the merge at the bottom. Progress moves the
+ * camera down the cascade: on the landing page the scroll (the merge arrives
+ * at the closing call to action), in the console the live job's stage, and the
+ * console also tones it from the job's verdict.
  *
  * Every particle's path is a function of its seeds and the clock, computed in
  * the vertex shader, so a frame costs no CPU work beyond a few uniforms.
@@ -27,6 +29,7 @@ import { lookAt, mul4, perspective, rng } from "./gl";
 const YTOP = 20;
 const YBOT = -44;
 const YEND = -64;
+const MERGE_Y = YEND + 1;
 const RTOP = 15;
 const RBOT = 1.1;
 // One plane per gate, from scope at the top to the strength audit at the bottom.
@@ -193,8 +196,10 @@ export const TONES = {
 };
 
 const FOVY = 0.9;
-const CAM_TOP = YTOP - 5; // where the camera looks at the top of the page
-const CAM_END = YEND + 8; // and at the bottom
+// The camera aims 2.5 below camY, so at the end of its travel the merge star
+// sits at the centre of the screen.
+const CAM_TOP = YTOP - 5;
+const CAM_END = MERGE_Y + 2.5;
 
 const funnel = (y) => {
   const u = Math.min(1, Math.max(0, (y - YBOT) / (YTOP - YBOT)));
@@ -228,7 +233,7 @@ function buildCascade(count) {
   });
   for (let i = 0; i < Math.round(count / 10); i++) pts.push(r(), r(), r(), r(), 4, 0);
   for (const w of [0, 2]) pts.push(0, YTOP + 2.5, 0, w, 3, 0);
-  for (const w of [1, 3]) pts.push(0, YEND + 1, 0, w, 3, 0);
+  for (const w of [1, 3]) pts.push(0, MERGE_Y, 0, w, 3, 0);
   const nPoints = pts.length / 6;
   const SEG = 240;
   GATES.forEach((gy, k) => {
@@ -309,7 +314,7 @@ export function createField(canvas) {
   let h = 1;
   let dpr = 1;
   let gain = 1;
-  let scroll = 0;
+  let progress = 0;
   let camY = CAM_TOP;
   let pointer = [0, 0];
   const lean = [0, 0];
@@ -321,7 +326,7 @@ export function createField(canvas) {
   function draw(seconds, still = false) {
     const dt = last === null ? 0 : Math.min(0.1, seconds - last);
     last = seconds;
-    // Ease toward the tone, the scroll position and the pointer rather than
+    // Ease toward the tone, the progress and the pointer rather than
     // jump: a verdict arriving recolours the cascade over about a second.
     const ease = (rate) => (still ? 1 : 1 - Math.exp(-dt * rate));
     const k = ease(2.5);
@@ -329,7 +334,7 @@ export function createField(canvas) {
     tone.flow += (target.flow - tone.flow) * k;
     tone.density += (target.density - tone.density) * k;
     phase += dt * tone.flow * 0.42;
-    camY += (CAM_TOP + (CAM_END - CAM_TOP) * scroll - camY) * ease(4);
+    camY += (CAM_TOP + (CAM_END - CAM_TOP) * progress - camY) * ease(4);
     lean[0] += (pointer[0] - lean[0]) * ease(3);
     lean[1] += (pointer[1] - lean[1]) * ease(3);
 
@@ -340,8 +345,8 @@ export function createField(canvas) {
     // axis right of centre, so the copy column on the left
     // sits over the quiet outer edge and the fountain rises beside the replay.
     const back = 30 * Math.max(1, 0.72 / Math.max(0.4, aspect));
-    // Over the last quarter of the page the axis drifts back to centre, so the
-    // beam lands under the closing call to action.
+    // Over the last quarter of the travel the axis drifts back to centre, so
+    // the beam lands on the closing call to action.
     const s = Math.min(1, Math.max(0, (camY - CAM_TOP) / (CAM_END - CAM_TOP)));
     const centre = Math.min(1, Math.max(0, (s - 0.72) / 0.25));
     const off = aspect > 1.2 ? -7.5 * (1 - centre * centre * (3 - 2 * centre)) : 0;
@@ -378,8 +383,8 @@ export function createField(canvas) {
       target = TONES[name] || TONES.idle;
       if (opts.gain !== undefined) gain = opts.gain;
     },
-    setScroll(progress) {
-      scroll = Math.max(0, Math.min(1, progress));
+    setProgress(p) {
+      progress = Math.max(0, Math.min(1, p));
     },
     setPointer(x, y) {
       pointer = [x, y];

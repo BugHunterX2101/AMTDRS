@@ -40,7 +40,7 @@ export function Hero() {
           </h1>
           <p className="hero-sub">
             Principal is an autonomous technical debt remediation swarm. It races parallel refactor candidates
-            inside Token Factory Sandboxes and opens a pull request only when the repository's own test suite
+            inside Nebius Sandboxes and opens a pull request only when the repository's own test suite
             passes — not when a model thinks it should.
           </p>
           <div className="hero-actions">
@@ -66,7 +66,7 @@ export function Hero() {
             </button>
           </div>
           <p className="hero-note">
-            The hosted console runs on the live Nebius sandbox and Token Factory, so a job started there spends real
+            The hosted console runs live on Nebius Sandboxes and Token Factory, so a job started there spends real
             tokens and sandbox time. It is a free-tier host: after a quiet spell, the first request waits for it to
             wake.
           </p>

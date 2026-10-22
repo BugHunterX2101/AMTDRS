@@ -23,7 +23,7 @@ const GATES = [
   {
     n: 3,
     label: "Local tests",
-    where: "Token Factory Sandbox",
+    where: "Nebius sandbox",
     cost: "seconds",
     kind: "sandbox",
     body: "Only the tests that the code graph's tests relation says actually exercise the changed file are run — not the full suite — in each fork, with up to 8 tasks racing 3 candidates apiece at once by default. If no candidate for a task passes, it gets at most two repair attempts with the failing test's stack trace (not the original goal) fed back in; after that the task is discarded, and the discard and its reason are recorded in the run's evidence.",
@@ -32,7 +32,7 @@ const GATES = [
   {
     n: 4,
     label: "Integration",
-    where: "Token Factory Sandbox · once",
+    where: "Nebius sandbox · once",
     cost: "seconds",
     kind: "sandbox",
     body: "Surviving patches pass in isolation, but patches that each pass alone can still conflict with each other. Every accepted patch is applied together in dependency order onto a fresh fork of the green baseline, and the entire suite runs for real. If one patch conflicts, it is dropped and the run is repeated once — never more. Only if that run is green does the orchestrator — never an agent — open the draft PR with a token no model ever holds.",
@@ -60,7 +60,7 @@ const GATES = [
   {
     n: 7,
     label: "Strength audit",
-    where: "Token Factory Sandbox",
+    where: "Nebius sandbox",
     cost: "seconds",
     kind: "sandbox",
     check: true,

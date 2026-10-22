@@ -40,7 +40,7 @@ const ITEMS = [
   },
   {
     q: "Who actually holds the GitHub credential?",
-    a: "Only the orchestrator, and only after the integration gate is green. No agent role — Planner, Coder, Repairer or Reporter — ever receives a token that can reach GitHub. Agents produce diffs; opening the PR is deterministic code, not a tool an LLM is trusted with. It's an import contract too: `agents` may not import `publish`.",
+    a: "Only the orchestrator, and only after the integration gate is green. No agent role — Planner, Characteriser, Coder, Repairer or Reporter — ever receives a token that can reach GitHub. Agents produce diffs; opening the PR is deterministic code, not a tool an LLM is trusted with. It's an import contract too: `agents` may not import `publish`.",
   },
   {
     q: "What does the hosted console run on?",

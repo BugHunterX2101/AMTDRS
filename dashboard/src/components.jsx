@@ -17,7 +17,7 @@ export function PanelHeader({ children }) {
 export function runMode(provenance, health) {
   if (provenance) {
     if (provenance.live) {
-      return { live: true, label: "LIVE · Nebius sandbox + inference", title: "Every check ran in a real Token Factory sandbox, with real model calls." };
+      return { live: true, label: "LIVE · Nebius sandbox + inference", title: "Every check ran in a real Nebius sandbox, with real Token Factory model calls." };
     }
     return {
       live: false,
@@ -98,8 +98,8 @@ const DEFAULTS = {
 };
 
 const ROUTINES = [
-  { value: "interface_evolution", label: "Interface evolution — change a signature, update every call site" },
-  { value: "relocation", label: "Relocation — move a symbol, reconcile every importer" },
+  { value: "interface_evolution", label: "Interface evolution — change a signature" },
+  { value: "relocation", label: "Relocation — move a symbol" },
 ];
 
 export function JobForm({ onStart, running }) {
@@ -153,20 +153,23 @@ const STAGES = [
   "Ingesting", "Baselining", "Mapping", "Characterising", "Planning", "Executing",
   "CleanupPlanning", "CleanupExecuting", "Integrating", "Publishing",
 ];
+const STAGE_LABEL = { CleanupPlanning: "Cleanup planning", CleanupExecuting: "Cleanup executing" };
 const TERMINAL_STATES = ["Done", "NoPR", "Aborted", "NoSafetyNet"];
 
-export function Pipeline({ state }) {
-  const idx = STAGES.indexOf(state);
+// A stopped job marks the stages it finished, and the one it stopped in with the
+// colour of how it stopped; the stages it never reached stay plain.
+export function Pipeline({ state, reached }) {
   const terminal = TERMINAL_STATES.includes(state);
+  const idx = STAGES.indexOf(terminal ? reached : state);
   return (
     <div className="pipeline">
       {STAGES.map((s, i) => {
         let cls = "stage";
-        if (terminal || (idx >= 0 && i < idx)) cls += state === "Aborted" ? "" : " done";
-        if (s === state) cls += " active";
+        if (state === "Done" || (idx >= 0 && i < idx)) cls += " done";
+        else if (i === idx) cls += terminal ? (state === "Aborted" ? " failed" : " nopr") : " active";
         return (
           <span key={s} className={cls}>
-            {s}
+            {STAGE_LABEL[s] || s}
           </span>
         );
       })}

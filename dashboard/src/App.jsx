@@ -29,8 +29,8 @@ const jobIdFromUrl = () => new URLSearchParams(window.location.search).get("job"
 
 const TERMINAL = ["Done", "NoPR", "Aborted", "NoSafetyNet"];
 
-// The room takes the colour of the verdict. Violet to green while work is being
-// verified, then the outcome's own colour: green verified, amber for a run that
+// The room takes the colour of the verdict. Blue while work is being verified,
+// then the outcome's own colour: green verified, amber for a run that
 // could not be called safe (or a correct refusal), red for a definite defect,
 // violet for a platform error that says nothing about the change.
 function moodOf(state, outcome) {
@@ -50,6 +50,24 @@ function moodOf(state, outcome) {
   if (state === "Done") return "verified";
   if (state === "Aborted") return "failed";
   return "unverified";
+}
+
+// How far down the cascade the background has travelled: one stop per stage,
+// with Executing advancing as its candidates settle. A stopped job holds the
+// camera at the stage it stopped in; only Done reaches the merge.
+const DEPTH = {
+  Ingesting: 0.06, Baselining: 0.12, Mapping: 0.2, Characterising: 0.27, Planning: 0.34,
+  Executing: 0.42, CleanupPlanning: 0.62, CleanupExecuting: 0.68, Integrating: 0.78, Publishing: 0.9,
+};
+
+function depthOf(job) {
+  if (job.state === "Done") return 1;
+  const stage = TERMINAL.includes(job.state) ? job.reached : job.state;
+  const depth = DEPTH[stage] ?? 0;
+  if (stage !== "Executing") return depth;
+  const all = Object.values(job.attempts);
+  const settled = all.filter((a) => a.verdict !== "running").length;
+  return depth + (all.length ? (0.2 * settled) / all.length : 0);
 }
 
 // A start-job failure arrives as a JSON error envelope. Show its message, not
@@ -222,7 +240,7 @@ export default function App() {
         <i className="a-unverified" />
         <i className="a-failed" />
         <i className="a-error" />
-        <Field tone={mood} gain={0.8} />
+        <Field tone={mood} gain={0.8} progress={depthOf(job)} />
       </div>
       <div className="app">
         <Masthead
@@ -276,7 +294,7 @@ export default function App() {
             <section className="panel" data-accent="pipeline" data-o="2">
               <PanelHeader>Pipeline</PanelHeader>
               <div className="body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <Pipeline state={job.state} />
+                <Pipeline state={job.state} reached={job.reached} />
                 <Stats job={job} status={status} />
                 {job.baseline && (
                   <div className="hint">
@@ -357,11 +375,11 @@ export default function App() {
               <div className="body">
                 <p className="hint">
                   No model sits in the accept path. The decision to keep a patch is a
-                  <code> pytest</code> exit code from a real run in a Token Factory
-                  Sandbox — never a score from a language model. The architecture
+                  <code> pytest</code> exit code from a real run in a Nebius
+                  sandbox — never a score from a language model. The architecture
                   contract that forbids <code>gates</code> from importing{" "}
                   <code>models</code> is checked in CI. The badge at the top says
-                  whether this run used the real Nebius sandbox and inference; a run on
+                  whether this run used a real Nebius sandbox and Token Factory; a run on
                   the local stand-in is labelled <em>not live</em> and is not a
                   measurement of the platform.
                 </p>

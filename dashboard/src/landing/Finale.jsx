@@ -2,7 +2,7 @@ import { ArrowRight, Github } from "./icons";
 
 export function Finale() {
   return (
-    <section className="section">
+    <section className="section" data-field-end>
       <div className="wrap reveal">
         <div className="finale">
           <span className="badge badge--green">

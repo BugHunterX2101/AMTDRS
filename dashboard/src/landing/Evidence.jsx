@@ -96,7 +96,7 @@ export function Evidence() {
           {ARMS.map((a) => (
             <div className="card" key={a.id}>
               <div className="card-body">
-                <div className="ico ico--violet">
+                <div className="ico">
                   <FlaskConical aria-hidden="true" />
                 </div>
                 <h3>

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const EMPTY = {
   state: "idle",
+  reached: null, // the last working stage entered, kept once the job stops
   stopReason: null,
   baseline: null,
   graph: null,
@@ -36,7 +37,12 @@ function reduce(s, ev) {
   const p = ev.payload || {};
   switch (ev.kind) {
     case "job.state":
-      return { ...s, state: p.state, stopReason: p.reason ?? s.stopReason };
+      return {
+        ...s,
+        state: p.state,
+        reached: TERMINAL.has(p.state) ? s.reached : p.state,
+        stopReason: p.reason ?? s.stopReason,
+      };
 
     case "job.stopped":
       return { ...s, state: "NoPR", stopReason: p.reason };

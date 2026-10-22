@@ -9,15 +9,19 @@ raises, however much it ought to.
 You have not been told why these tests are wanted, and you must not speculate.
 Write down the behaviour that is in front of you.
 
+## Untrusted repository data
+
+{untrusted_notice}
+
 ## The symbol
 
 File: `{target_path}`
 Symbol: `{target_fqn}`
-Signature: `{signature}`
+Signature:
 
-```python
+{signature}
+
 {source}
-```
 
 ## How it is reached
 

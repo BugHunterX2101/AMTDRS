@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from principal.agents.spotlight import NOTICE, spotlight
 from principal.config import MAX_GENERATED_TESTS, Tier
 from principal.graph.parse import CallSite
 from principal.models.client import Completion, ModelClient
@@ -55,8 +56,11 @@ def render_characterisation_prompt(
 
     return PROMPT.format(
         target_fqn=target_fqn, target_path=target_path,
-        signature=signature or "(no signature captured)", source=source[:12000],
-        call_sites_block=calls_block, convention_block=convention_block, max_tests=max_tests,
+        signature=spotlight("signature", signature or "(no signature captured)"),
+        source=spotlight("symbol source", f"```python\n{source[:12000]}\n```"),
+        call_sites_block=spotlight("call sites", calls_block),
+        convention_block=spotlight("test conventions", convention_block),
+        max_tests=max_tests, untrusted_notice=NOTICE,
     )
 
 

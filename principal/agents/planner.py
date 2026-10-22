@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from principal.agents.contracts import Plan
+from principal.agents.spotlight import NOTICE, spotlight
 from principal.config import Tier
 from principal.errors import PlanInvalid
 from principal.graph.radius import BlastRadius
@@ -32,10 +33,13 @@ def _render(goal: str, target_fqn: str, radius: BlastRadius, max_depth: int, pro
     ) or "(none)"
 
     return prompt_template.format(
-        goal=goal, target_fqn=target_fqn, signature=radius.target.signature or "(no signature captured)",
+        goal=goal, target_fqn=target_fqn,
+        signature=spotlight("signature", radius.target.signature or "(no signature captured)"),
         target_path=radius.target.path, target_line=radius.target.line_start, max_depth=max_depth,
-        files_block=files_block, call_sites_block=call_sites_block, unresolved_block=unresolved_block,
-        schema=json.dumps(Plan.model_json_schema()),
+        files_block=spotlight("file paths", files_block),
+        call_sites_block=spotlight("call sites", call_sites_block),
+        unresolved_block=spotlight("unresolved calls", unresolved_block),
+        schema=json.dumps(Plan.model_json_schema()), untrusted_notice=NOTICE,
     )
 
 

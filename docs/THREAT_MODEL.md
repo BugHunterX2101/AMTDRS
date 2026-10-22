@@ -42,7 +42,7 @@ violation is a failed CI job rather than a code-review miss.
 
 | Threat | Vector | Mitigation | Where | Residual |
 |---|---|---|---|---|
-| Prompt injection from repo content | A docstring instructing the agent to edit tests | Instructions carry no privileged channel. The agent's only output is a diff, and the diff is gated regardless of what motivated it | `gates/scope.py`, fixture `injected_instruction.diff` | **Low** — injection can waste a candidate, not pass a gate |
+| Prompt injection from repo content | A docstring instructing the agent to edit tests | Instructions carry no privileged channel. The agent's only output is a diff, and the diff is gated regardless of what motivated it. As defence in depth, repository text in every prompt is fenced as data (see below) | `gates/scope.py`, fixture `injected_instruction.diff`, `agents/spotlight.py` | **Low** — injection can waste a candidate, not pass a gate |
 | Agent edits tests to pass | Diff touching a test file | Rejected at gate 1 before any sandbox is spent, plus the test-count invariant at integration | `gates/scope.py`, `gates/behaviour.py` | **Low** |
 | Agent deletes the code under test | Removing a symbol so nothing fails | Public API delta compared against the plan's *declared* removals | `gates/behaviour.py::check_api_delta` | **Medium** — see below |
 | Dependency tampering | Editing a manifest or lockfile to change what is installed | `BLOCKED_MANIFESTS` rejected at gate 1 | `gates/scope.py` | **Low** |
@@ -53,6 +53,29 @@ violation is a failed CI job rather than a code-review miss.
 | Runaway spend | A retry loop consuming the credit budget | Budget reserved before every call; hard caps on attempts, repairs and forks | `orchestrator/budget.py` | **Low** |
 | Supply chain via base image | A tampered base image | Pinned by tag, not digest | `config.py::principal_base_image` | **Medium** — see below |
 | Swallowed exception in a gate | `except Exception: pass` turning a failure into a pass | Gates never raise; CI greps `gates/` and `publish/` for bare and swallowed excepts | `.github/workflows/ci.yml` | **Low** |
+
+## Fencing repository text in prompts
+
+Source files, docstrings, test names and tracebacks are written by whoever wrote
+the repository. The coder, repairer, planner, characteriser and relocation
+prompts therefore put that text between delimiters and tell the model that
+everything inside is data, never instructions (`agents/spotlight.py`).
+
+Three properties are deliberate:
+
+- **The delimiter cannot be forged from inside.** Its id is the first 96 bits of
+  a hash of the fenced text, so text that tried to close its own block would have
+  to contain a hash of itself. A closing line planted in the data does not match.
+- **The text is never altered.** A diff has to apply to the bytes the model was
+  shown, so there is no encoding or datamarking, only fencing around it.
+- **The same text gives the same prompt.** A random id per call would make every
+  model call a cache miss, which breaks replaying a recorded run.
+
+This is defence in depth and nothing more. `tests/unit/test_spotlight.py` shows
+where planted text sits in each prompt and that a forged closing line does not end
+a block. It does not show that a model obeys the notice, and no injection success
+rate has been measured. The gates above remain the defence: an injected
+instruction can waste a candidate, and it cannot pass a gate.
 
 ## The residual risks, stated plainly
 

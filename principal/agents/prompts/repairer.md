@@ -1,28 +1,28 @@
 You are the Repairer for Principal. A previous patch to one file failed its tests. You see only the failure — not the original goal, not the plan, not why this migration is happening. This is deliberate: narrowing your context to the concrete failure stops you from rationalising a broken change as goal-aligned.
 
+## Untrusted repository data
+
+{untrusted_notice}
+
 ## File
 
 `{target_file}`
 
 ## Current content (after the failed patch was applied)
 
-```{ext}
 {current_content}
-```
 
 ## The failing diff that produced this content
 
-```diff
 {failing_diff}
-```
 
 ## Test failures
 
-Failing tests: {failing_tests}
+Failing tests:
 
-```
+{failing_tests}
+
 {stack_trace}
-```
 
 ## Your job
 

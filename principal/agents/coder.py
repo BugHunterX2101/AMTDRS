@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from principal.agents.spotlight import NOTICE, spotlight
 from principal.config import Tier
 from principal.diffs import ParsedDiff, canonicalise, parse_diff
 from principal.graph.languages import lang_of
@@ -34,10 +35,17 @@ def render_context_pack(
     ) or "(none found)"
     tests_block = "\n".join(f"- {n}" for n in test_names[:40]) or "(no covering tests found — see risk notes)"
 
+    # The fence around the file moves here from the template so the delimiters
+    # can sit outside it: a file that itself contains a ``` line cannot close a
+    # fence that is inside the spotlighted block.
+    fenced = f"```{EXT_OF.get(lang, 'text')}\n{file_content[:20000]}\n```"
     return PROMPT.format(
         instruction=instruction, acceptance=acceptance, target_file=target_file,
-        ext=EXT_OF.get(lang, "text"), file_content=file_content[:20000],
-        call_sites_block=calls_block, convention_block=convention_block, test_names_block=tests_block,
+        file_content=spotlight("file to change", fenced),
+        call_sites_block=spotlight("call sites", calls_block),
+        convention_block=spotlight("convention examples", convention_block),
+        test_names_block=spotlight("test names", tests_block),
+        untrusted_notice=NOTICE,
     )
 
 

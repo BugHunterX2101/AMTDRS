@@ -12,6 +12,7 @@ from pathlib import Path
 
 from principal.agents.coder import max_tokens_for
 from principal.agents.contracts import RepairKind
+from principal.agents.spotlight import NOTICE, spotlight
 from principal.config import Tier
 from principal.diffs import ParsedDiff, canonicalise, parse_diff
 from principal.graph.languages import lang_of
@@ -27,10 +28,16 @@ def render_repair_prompt(
     stack_trace: str,
 ) -> str:
     lang = lang_of(target_file) or "python"
+    # Fences are built here, inside the delimiters, for the reason given in coder.py.
+    # The stack trace and test names are repository text too: an assertion message
+    # or a parametrised test id is whatever the test author wrote.
     return PROMPT.format(
-        target_file=target_file, ext=EXT_OF.get(lang, "text"), current_content=current_content[:20000],
-        failing_diff=failing_diff[:4000], failing_tests=", ".join(failing_tests[:10]) or "(none named)",
-        stack_trace=stack_trace[:4000],
+        target_file=target_file,
+        current_content=spotlight("current file", f"```{EXT_OF.get(lang, 'text')}\n{current_content[:20000]}\n```"),
+        failing_diff=spotlight("failing diff", f"```diff\n{failing_diff[:4000]}\n```"),
+        failing_tests=spotlight("failing test names", ", ".join(failing_tests[:10]) or "(none named)"),
+        stack_trace=spotlight("test output", f"```\n{stack_trace[:4000]}\n```"),
+        untrusted_notice=NOTICE,
     )
 
 

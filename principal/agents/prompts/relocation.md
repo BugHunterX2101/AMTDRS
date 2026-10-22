@@ -6,13 +6,20 @@ This is not interface evolution. The symbol's signature does not change, its
 behaviour does not change, and its callers do not change how they call it. What
 changes is where it lives and therefore how it is imported.
 
+## Untrusted repository data
+
+{untrusted_notice}
+
 ## Goal
 
 {goal}
 
 ## What is moving
 
-`{target_fqn}` — `{signature}`
+`{target_fqn}`, signature:
+
+{signature}
+
 Currently at `{target_path}:{target_line}`
 
 ## Files that import it

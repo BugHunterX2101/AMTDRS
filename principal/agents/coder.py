@@ -65,6 +65,8 @@ async def generate_candidate(
 
 
 def max_tokens_for(tier: Tier) -> int:
-    # Super and Ultra reason before they answer. At 3000 the thinking alone used
-    # the whole budget and no diff block was ever emitted.
-    return 3000 if tier is Tier.NANO else 10000
+    # Every tier reasons before it answers, Nano included, and the thinking is
+    # counted against this budget. A hit on it leaves no diff block. Live samples of
+    # one task (src/pricing.py, indicative and not a rate): 4 of 6 Nano calls were cut
+    # off at 3000, 4 of 12 at 6000 and 1 of 12 at 10000; uncut calls used up to 6788.
+    return 10000

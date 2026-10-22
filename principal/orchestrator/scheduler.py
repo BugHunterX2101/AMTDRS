@@ -449,10 +449,15 @@ async def run_task(ctx: TaskContext, task: Task, candidates_per_task: int = 3) -
     last_run = seed[2] if seed else None
     n = candidates_per_task + 1
     for _ in range(ctx.max_repairs):
+        # The Repairer is told the failure and not the goal, so with no diff to read
+        # it has nothing to repair and could only guess. When every first-round
+        # candidate died before it parsed, Super takes the task as a coder instead.
+        step = (
+            _repair_once(ctx, task, last_diff, last_run, n) if last_diff
+            else _one_candidate(ctx, task, context_pack, n, 0.2, Tier.SUPER)
+        )
         try:
-            attempt_id, verdict, run = await asyncio.wait_for(
-                _repair_once(ctx, task, last_diff or "", last_run, n), timeout=ctx.task_timeout_s,
-            )
+            attempt_id, verdict, run = await asyncio.wait_for(step, timeout=ctx.task_timeout_s)
         except TimeoutError:
             return _discard(
                 ctx, task, f"repair exceeded task timeout of {ctx.task_timeout_s}s",

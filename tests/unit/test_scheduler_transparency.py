@@ -116,3 +116,32 @@ async def test_a_repair_that_never_reached_the_sandbox_does_not_replace_the_seed
     await scheduler.run_task(ctx, task)
 
     assert seen == [("SEED DIFF", seed_run), ("SEED DIFF", seed_run)]
+
+
+async def test_with_no_diff_to_repair_super_takes_the_task_as_a_coder(ctx_and_task, monkeypatch):
+    """The Repairer is not told the goal. When every first-round candidate died before
+    it parsed there is no diff to show it, so it would be asked to repair nothing."""
+    ctx, task = ctx_and_task
+    unparseable = Verdict.fail(VerdictKind.ERROR, "diffparse", "no block")
+    red = Verdict.fail(VerdictKind.RED, "tests", "red")
+    run = SimpleNamespace(failing=["t1"])
+    coded: list[tuple[Tier, str]] = []
+    repaired: list[str] = []
+
+    async def as_coder(_ctx, _task, pack, n, temperature, tier):
+        coded.append((tier, pack))
+        return f"c{n}", red, run
+
+    async def repair(_ctx, _task, failing_diff, _run, n):
+        repaired.append(failing_diff)
+        return f"r{n}", red, run
+
+    _stub_first_round(monkeypatch, [("a1", unparseable, None), ("a2", unparseable, None)])
+    monkeypatch.setattr(scheduler, "_one_candidate", as_coder)
+    monkeypatch.setattr(scheduler, "_repair_once", repair)
+    monkeypatch.setattr(scheduler, "_diff_of_attempt", lambda _ctx, aid: {"c4": "CODER DIFF"}.get(aid))
+
+    await scheduler.run_task(ctx, task)
+
+    assert coded == [(Tier.SUPER, "pack")]
+    assert repaired == ["CODER DIFF"]

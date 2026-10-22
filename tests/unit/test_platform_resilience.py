@@ -197,9 +197,9 @@ def test_the_local_stand_in_is_used_only_when_asked_for(settings, capsys):
 
 # ---------------------------------------------------------------------- tunables --
 
-def test_the_smallest_tier_gets_a_smaller_output_budget_than_the_others():
-    assert max_tokens_for(Tier.NANO) == 3000
-    assert max_tokens_for(Tier.SUPER) == 10000
+def test_every_tier_gets_room_to_reason_and_still_answer():
+    """Nano reasons first too. At 3000 most of its calls were cut off before the diff."""
+    assert max_tokens_for(Tier.NANO) == max_tokens_for(Tier.SUPER) == 10000
 
 
 def test_the_configured_strength_floor_matches_the_gate_default(settings):

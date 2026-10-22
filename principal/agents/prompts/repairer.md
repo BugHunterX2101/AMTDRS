@@ -8,11 +8,11 @@ You are the Repairer for Principal. A previous patch to one file failed its test
 
 `{target_file}`
 
-## Current content (after the failed patch was applied)
+## Current content (the file as it is, before the failed patch)
 
 {current_content}
 
-## The failing diff that produced this content
+## The failing diff, which was made against that content
 
 {failing_diff}
 
@@ -33,7 +33,7 @@ First, classify what went wrong. One of:
 - `test_expectation` — the test asserts the OLD behaviour; this may be a legitimate interface change that the test correctly needs to reflect. You cannot edit the test. If this is what happened, still return your best diff attempt and classify honestly; the task will be discarded and reported rather than the test being touched.
 - `other`
 
-Then produce a corrected unified diff against the CURRENT content shown above (not the original file — this diff must apply to what is shown). Same constraints as before: touches only `{target_file}`, no tests, no manifests.
+Then produce a corrected unified diff against the current content shown above. It replaces the failing diff and must apply to that content as shown, so do not build on the failing diff's changes. Same constraints as before: touches only `{target_file}`, no tests, no manifests.
 
 Respond with exactly one diff block:
 

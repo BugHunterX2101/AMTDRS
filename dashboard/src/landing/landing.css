@@ -347,6 +347,16 @@ main,
   opacity: 0;
   animation: stage-in 1.6s var(--ease) 0.1s forwards;
 }
+/* Two columns: the copy is on the left and the cascade stands right of
+   centre, but its outer rims still sweep under the headings. Quieten the
+   left of the screen; from the middle rightwards, where the beam ends over
+   the closing section, it is untouched. */
+@media (min-width: 1025px) {
+  .field-canvas {
+    -webkit-mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.3) 0%, rgb(0 0 0 / 0.4) 30%, #000 50%);
+    mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.3) 0%, rgb(0 0 0 / 0.4) 30%, #000 50%);
+  }
+}
 
 /* ------------------------------------------------------------------ nav -- */
 
@@ -2060,6 +2070,13 @@ table.compare td:nth-child(n + 2) {
   }
   .hero-window {
     min-height: clamp(240px, 56vw, 420px);
+  }
+  /* The tree's window starts a little over a third of the way down the
+     stacked hero. Behind it and the readout, hide the page's cascade so the
+     two scenes do not draw over each other; the cascade stays behind the
+     copy above and comes back after the hero. */
+  .hero-stage {
+    background: linear-gradient(to bottom, transparent 26%, var(--bg) 35%, var(--bg) 93%, transparent);
   }
   /* Stacked, the copy sits over the tree rather than beside it: darken from the
      top instead of from the left, and let the tree show through lower down. */

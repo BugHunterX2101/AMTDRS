@@ -404,7 +404,7 @@ export function TaskBoard({ job, onSelect }) {
                   aria-label={label}
                   className={[
                     "candidate",
-                    verdictClass(a.verdict),
+                    verdictClass(a.verdict, a.gate),
                     lost ? "cancelled" : "",
                     a.kind === "repair" ? "repair" : "",
                   ].join(" ")}
@@ -431,12 +431,15 @@ export function TaskBoard({ job, onSelect }) {
   );
 }
 
-// Verdicts are the server's VerdictKind values: "ok" is the only pass.
-function verdictClass(v) {
+// Verdicts are the server's VerdictKind values: "ok" is the only pass. An
+// "error" at the diffparse gate is a reply with no usable diff, rejected like
+// any other gate failure (the landing page's ledger draws it the same way); an
+// "error" from the model call itself is the platform's, not the candidate's.
+function verdictClass(v, gate) {
   if (v === "ok") return "pass";
   if (v === "running") return "running";
   if (v === "cancelled") return "cancelled";
-  if (v === "error") return "error";
+  if (v === "error" && gate === "model") return "error";
   return "fail";
 }
 

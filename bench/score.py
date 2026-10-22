@@ -49,6 +49,10 @@ class TaskOutcome:
     failed_attempts: int = 0
     # What the sandbox platform reported charging. 0.0 means "not reported".
     sandbox_cost: float = 0.0
+    # Whether the independent oracle (bench/oracle.py) accepted the patch this run
+    # claimed was verified. None: the task has no oracle, the run claimed nothing,
+    # or the patched tree could not be rebuilt. Only False is a false accept.
+    oracle: bool | None = None
 
     @property
     def unverified(self) -> bool:
@@ -88,6 +92,10 @@ class ArmScore:
     total_sandbox_cost: float = 0.0
     # Wall clock of each run that ended VERIFIED, for time-to-verified.
     verified_durations_s: list[float] = field(default_factory=list)
+    # Of the verified claims, how many an independent oracle checked, and how many
+    # of those it rejected. A claim with no oracle is not counted either way.
+    oracle_checked: int = 0
+    false_accepts: int = 0
 
     @property
     def scored(self) -> int:
@@ -120,6 +128,8 @@ class ArmScore:
             "failed_on_merit": self.failed_on_merit,
             "excluded_infrastructure": self.excluded_infrastructure,
             "verified_rate": _round(self.verified_rate),
+            # "n/m": n claims rejected by the oracle of m it checked. "—" when none was checked.
+            "false_accepts": f"{self.false_accepts}/{self.oracle_checked}" if self.oracle_checked else "—",
             "tokens_per_verified": _round(self.tokens_per_verified, 0),
             "failed_attempts_per_verified": _round(self.failed_attempts_per_verified, 1),
             "median_time_to_verified_s": _round(self.median_time_to_verified_s, 1),
@@ -144,6 +154,9 @@ def score(outcomes: list[TaskOutcome]) -> dict[str, ArmScore]:
         if o.verified:
             s.verified += 1
             s.verified_durations_s.append(o.duration_s)
+            if o.oracle is not None:
+                s.oracle_checked += 1
+                s.false_accepts += 0 if o.oracle else 1
         elif o.unverified:
             s.unverified += 1
         elif o.infrastructure:
@@ -176,7 +189,7 @@ def render(arms: dict[str, ArmScore], provenance: dict[str, object] | None = Non
     rows += [s.to_row() for k, s in sorted(arms.items()) if k not in order]
 
     headers = ["arm", "attempted", "verified", "unverified", "failed_on_merit",
-               "excluded_infrastructure", "verified_rate", "tokens_per_verified",
+               "excluded_infrastructure", "verified_rate", "false_accepts", "tokens_per_verified",
                "failed_attempts_per_verified", "median_time_to_verified_s",
                "sandbox_runs", "sandbox_cost_usd", "wall_clock_s"]
     widths = {h: max(len(h), *(len(str(r[h])) for r in rows)) if rows else len(h) for h in headers}

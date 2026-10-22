@@ -145,3 +145,29 @@ def test_the_table_says_what_it_was_measured_on():
     assert "LIVE — real Nebius" in live
     assert "NOT LIVE" in local and "not a measurement of the platform" in local
     assert provenance_line(None).startswith("Executed on: unknown")
+
+
+def test_a_verified_claim_the_oracle_rejects_is_a_false_accept():
+    outcomes = [
+        TaskOutcome("t1", "A", verified=True, oracle=False),
+        TaskOutcome("t2", "A", verified=True, oracle=True),
+    ]
+    s = score(outcomes)["A"]
+    assert (s.false_accepts, s.oracle_checked) == (1, 2)
+    assert s.to_row()["false_accepts"] == "1/2"
+
+
+def test_a_claim_nobody_checked_is_neither_a_false_accept_nor_a_clean_one():
+    s = score([TaskOutcome("t1", "C", verified=True, oracle=None)])["C"]
+    assert (s.false_accepts, s.oracle_checked) == (0, 0)
+    assert s.to_row()["false_accepts"] == "—"
+
+
+def test_an_oracle_verdict_on_a_run_that_claimed_nothing_is_not_counted():
+    s = score([TaskOutcome("t1", "B", verified=False, error_code="GATE_TESTS_RED", oracle=False)])["B"]
+    assert (s.false_accepts, s.oracle_checked) == (0, 0)
+
+
+def test_the_table_has_a_false_accepts_column():
+    table = render(score([TaskOutcome("t1", "A", verified=True, oracle=False)]))
+    assert "false_accepts" in table and "1/1" in table

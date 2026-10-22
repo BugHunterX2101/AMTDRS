@@ -15,6 +15,7 @@
       "commit_sha": "3fd067a7d5b8f0152b54e1922be821ff1b2f786c",
       "target_fqn": "src.pricing.calc_total",
       "goal": "Improve pricing.calc_total: remove magic constants and add type hints without changing behaviour",
+      "oracle": "tests/fixtures/weak_repo_oracle",
       "notes": "A repository whose tests pass but are weak: the checkout test covers calc_total, while reports.py reaches it through getattr and legacy_export.py and promotions.py call it with no test at all. A change here can be green and still unverified, which is what the blast-radius and test-strength checks exist to say. The fixture source is tests/fixtures/weak_repo."
     }
   ],

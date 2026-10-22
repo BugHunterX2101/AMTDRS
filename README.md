@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-21**: `pytest -q` → **432 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on commit `93879e5` passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-22**: `pytest -q` → **465 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on commit `93879e5` passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -603,7 +603,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 432 tests, unit + integration
+make test          # or: pytest — 465 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -723,7 +723,23 @@ The static analysis is exposed as **five read-only MCP tools**:
 | `tests_covering` | the tests whose coverage touches a symbol |
 | `read_span` | an exact line range of a file |
 
-`principal serve` mounts them over **streamable HTTP at `/mcp/`**; `python -m mcp_code_graph.server` runs the same server over **stdio** for any MCP client.
+The same graph is also offered as **resources**, which a client can browse without spending a tool call, and as two **prompts**:
+
+| Resource | Returns |
+|---|---|
+| `amtdrs://graph/tree` and `amtdrs://graph/tree/{path*}` | one directory level (at most 60 entries), or the symbols of one file |
+| `amtdrs://graph/entities/{fqn}` | the symbols matching an FQN, each with its source |
+| `amtdrs://graph/blast-radius/{fqn}{?depth}` | the same radius as the tool; `depth` is clamped to 1-6 |
+| `amtdrs://jobs/{job_id}/evidence` | the job's evidence bundle |
+
+| Prompt | Returns |
+|---|---|
+| `plan_change(fqn, goal)` | a brief for changing a symbol: its radius, call sites, unresolved calls and covering tests, with a pointer to `principal run` |
+| `relocate_symbol(fqn, destination)` | the same brief for a relocation, built from the importers only |
+
+A resource or prompt for something that does not exist returns an answer saying so, not an error. The tool list is unchanged at five.
+
+`principal serve` mounts the server over **streamable HTTP at `/mcp/`**; `python -m mcp_code_graph.server` runs the same server over **stdio** for any MCP client.
 
 > **Read-only by construction** — no write tool, no shell tool, nothing that names a sandbox. An agent holding this toolset can look at the code and nothing else.
 
@@ -736,12 +752,23 @@ make bench         # the same run without the credential check first
 
 - **Three arms** over the same tasks: **A** single-shot, no gates · **B** single candidate, gates on · **C** full swarm.
 - **Four result buckets** — verified / unverified (tests pass, caveats open) / failed on merit / excluded as infrastructure. Only a run the product itself classifies as **VERIFIED** counts as a win. *Why separate buckets:* collapsing a sandbox timeout into "the patch was wrong" understates the verified rate **and** hides a platform problem.
+- **False accepts.** A task can name an independent oracle, a test directory the pipeline never sees. Every run that claims *verified* is then checked against it, and a claim the oracle rejects is a false accept, reported per arm as `n/m` (`—` when nothing was checked). Only `weak_repo-calc-total-types` has an oracle (`tests/fixtures/weak_repo_oracle`). The oracle runs on the host in a scratch copy with credentials removed from its environment, not in the sandbox, which is acceptable for these fixture repositories and not for an arbitrary one.
 - **Cost and time columns**, reported as measured. Sandbox cost shows `—` when the platform reported no charge (never `0`, which reads as free); model tokens are counted, not priced.
 - The harness has **no offline mode**: it refuses to run without real credentials, and its reports open with a LIVE / NOT LIVE line.
 
-`bench/tasks.json` pins **two tasks, not a suite**: the bundled `mini_repo`, and the weak-tests repository where a green change can still be unverified. **No benchmark results are published here.**
+`bench/tasks.json` pins **two tasks, not a suite**: the bundled `mini_repo`, and the weak-tests repository where a green change can still be unverified. The one live run made so far is recorded below.
 
-> **Both tasks point at public git URLs**, because the Nebius sandbox cannot clone a local path (see the quick start). The `mini_repo` task uses the fixture's published branch, `fixture/mini-repo` at `3d11f55`, the same repository and commit as live run 6. No benchmark run has been made with this task list.
+> **Both tasks point at public git URLs**, because the Nebius sandbox cannot clone a local path (see the quick start). The `mini_repo` task uses the fixture's published branch, `fixture/mini-repo` at `3d11f55`, the same repository and commit as live run 6.
+
+**Live benchmark, 2026-10-22** (`python -m bench.harness`, real Nebius sandbox and real inference, labelled LIVE by the report, one run per cell):
+
+| Arm | Attempted | Verified | Unverified | Failed on merit | Infrastructure exclusions | False accepts | Tokens (mini_repo / weak_repo) |
+|---|---|---|---|---|---|---|---|
+| A | 2 | 0 | 0 | 2 | 0 | — | 38,586 / 30,730 |
+| B | 2 | 0 | 1 | 1 | 0 | — | 50,084 / 26,281 |
+| C | 2 | 0 | 1 | 1 | 0 | — | 81,736 / 38,298 |
+
+No arm reached VERIFIED on either task, so there is no verified rate to compare. The result is two tasks and one run per cell: it shows nothing about which arm is better, and the differences in tokens and time are within what one run can show. The false-accepts column is `—` everywhere because no run claimed *verified*, so the oracle on `weak_repo` was never exercised live. It is covered only by the unit tests in `tests/unit/test_bench_oracle.py`. Causes recorded: the mini_repo B and C runs ended UNVERIFIED with caveats open; the weak_repo B and C runs ended UNVERIFIED because a task was discarded (1 of 3, over the 30% cap); arm A failed on both tasks (2 of 6 and 3 of 4 tasks discarded). Why the tasks were discarded has not been investigated.
 
 ### Deploying the hosted demo
 
@@ -861,7 +888,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            432 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            465 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -923,7 +950,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **432 tests pass** | `python -m pytest -q` on the working tree | Confirmed: 432 passed in 195 s |
+| **465 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 465 passed in 250 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
 | **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | Confirmed: 3 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |

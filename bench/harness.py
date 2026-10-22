@@ -20,22 +20,28 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
 
+import unidiff
+
 from bench.arms import Arm
 from bench.arms import parse as parse_arms
+from bench.oracle import oracle_passes, patched_files
 from bench.score import TaskOutcome, render, score, write_report
 from principal.config import Settings, Tier, get_settings
 from principal.db.events import EventLog
 from principal.db.store import Store
-from principal.errors import PrincipalError
+from principal.errors import DiffUnparseable, PrincipalError
 from principal.models.cache import DiskCache
 from principal.models.client import ModelClient
 from principal.orchestrator.signals import execution_provenance, gather_signals
 from principal.outcome import Outcome, classify
+from principal.sandbox.baseline import ensure_snapshot
 
 logger = logging.getLogger("bench")
 
@@ -115,6 +121,9 @@ async def run_one(
     # The ungated arm skips the checks the classification reads, so it has none.
     verdict = None if ungated else classify(gather_signals(store, job.id))
     verified = _independently_verify(final, tasks_, attempts, verdict=verdict, bench_ungated=ungated)
+    oracle, oracle_note = await _oracle_verdict(task, job, store, settings) if verified else (None, "")
+    if oracle_note:
+        note = f"{note} {oracle_note}".strip()
 
     outcome = TaskOutcome(
         task_id=task["id"], arm=arm.name, verified=verified, error_code=error_code,
@@ -125,10 +134,27 @@ async def run_one(
         outcome=verdict.outcome.value if verdict else "", cause=verdict.cause if verdict else "",
         # A loser cancelled once another candidate passed was never judged.
         failed_attempts=sum(1 for a in attempts if a.verdict not in (None, "ok", "cancelled")),
-        sandbox_cost=sum(a.cost or 0.0 for a in attempts),
+        sandbox_cost=sum(a.cost or 0.0 for a in attempts), oracle=oracle,
     )
     store.close()
     return outcome, provenance
+
+
+async def _oracle_verdict(task: dict, job, store: Store, settings: Settings) -> tuple[bool | None, str]:
+    """What the task's independent oracle says about a run that claimed verified.
+
+    (None, "") when the task has no oracle. (None, reason) when it has one but the
+    patched tree could not be rebuilt, which is reported rather than scored: a
+    tree that is not the arm's output says nothing about the arm.
+    """
+    if not task.get("oracle"):
+        return None, ""
+    snapshot = await ensure_snapshot(job.repo_url, job.commit_sha, settings.principal_snapshots_dir)
+    try:
+        patched = patched_files(store, settings, job.id, snapshot)
+        return oracle_passes(snapshot, patched, ROOT / task["oracle"]), ""
+    except (DiffUnparseable, unidiff.UnidiffParseError, OSError) as exc:
+        return None, f"oracle not run: {exc}"
 
 
 def _independently_verify(final, tasks_, attempts, *, verdict, bench_ungated: bool) -> bool:
@@ -191,13 +217,19 @@ def _make_sandbox(settings: Settings):
     )
 
 
+def _make_writable_and_retry(func, path, _exc_info) -> None:
+    """rmtree handler: git marks pack files read-only, which Windows refuses to delete."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 async def main_async(args: argparse.Namespace) -> int:
     tasks = load_tasks(Path(args.tasks))
     arms = parse_arms(args.arms)
     base_settings = get_settings()
     work_dir = Path(args.out)
     if args.clean and work_dir.exists():
-        shutil.rmtree(work_dir)
+        shutil.rmtree(work_dir, onerror=_make_writable_and_retry)
 
     outcomes = []
     provenance: dict | None = None
@@ -215,7 +247,8 @@ async def main_async(args: argparse.Namespace) -> int:
                 status = "unverified"
             else:
                 status = "infra" if outcome.infrastructure else "failed"
-            print(f"  -> {status}  {outcome.duration_s}s  {outcome.tokens} tokens", file=sys.stderr)
+            false_accept = "  FALSE ACCEPT (independent oracle failed)" if outcome.oracle is False else ""
+            print(f"  -> {status}  {outcome.duration_s}s  {outcome.tokens} tokens{false_accept}", file=sys.stderr)
             outcomes.append(outcome)
 
     arm_scores = score(outcomes)

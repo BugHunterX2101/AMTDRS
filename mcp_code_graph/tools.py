@@ -21,6 +21,7 @@ from principal.graph.radius import blast_radius as _blast_radius
 from principal.graph.radius import find_target
 
 MAX_SPAN_LINES = 400
+TREE_MAX_ENTRIES = 60
 
 
 @dataclass(slots=True)
@@ -161,6 +162,69 @@ def read_span(ctx: GraphContext, path: str, start: int, end: int) -> dict[str, A
         "end": start + len(span) - 1,
         "truncated": end - start + 1 >= MAX_SPAN_LINES,
         "text": "\n".join(span),
+    }
+
+
+def entity(ctx: GraphContext, fqn: str, max_symbols: int = 5) -> dict[str, Any]:
+    """A symbol together with its source, for hosts that attach it as context.
+
+    The MCP *resource* form of `find_symbol` plus `read_span`: a host can pull the
+    definition into a conversation without spending a tool-call round trip. The
+    source is bounded by `read_span`, and the number of symbols by `max_symbols`,
+    so a common bare name cannot flood the context.
+    """
+    found = find_symbol(ctx, fqn)
+    symbols = found["symbols"][:max_symbols]
+    for s in symbols:
+        s["source"] = read_span(ctx, s["path"], s["line_start"], s["line_end"]).get("text", "")
+    return {"query": fqn, "count": found["count"], "truncated": found["count"] > len(symbols), "symbols": symbols}
+
+
+def graph_tree(ctx: GraphContext, path: str = "") -> dict[str, Any]:
+    """One level of the graph, presented as a directory.
+
+    The root lists top-level directories and files, a directory lists its
+    children, and a file lists its symbols with line ranges and signatures but no
+    bodies. A client walks down only the branch it needs and reads a body through
+    `entity` or `read_span` once it knows which one, instead of being handed the
+    repository up front. Bounded at `TREE_MAX_ENTRIES` per level, and `total`
+    says how many there were, so a cut-off listing cannot pass as a whole one.
+
+    Answers from the stored graph alone and never touches the filesystem, so
+    `path` needs no containment check.
+    """
+    prefix = path.strip("/")
+    files = [r["path"] for r in ctx.store.files_of_graph(ctx.graph_id)]
+
+    if prefix in files:
+        syms = sorted(ctx.store.symbols_in_files(ctx.graph_id, {prefix}), key=lambda s: s.line_start)
+        return {
+            "path": prefix, "type": "file", "total": len(syms), "truncated": len(syms) > TREE_MAX_ENTRIES,
+            "entries": [
+                {"name": s.fqn, "kind": s.kind, "lines": f"{s.line_start}-{s.line_end}", "signature": s.signature}
+                for s in syms[:TREE_MAX_ENTRIES]
+            ],
+        }
+
+    under = f"{prefix}/" if prefix else ""
+    dirs: dict[str, int] = {}
+    leaves: list[str] = []
+    for p in files:
+        if not p.startswith(under):
+            continue
+        head, sep, _ = p[len(under):].partition("/")
+        if sep:
+            dirs[head] = dirs.get(head, 0) + 1
+        else:
+            leaves.append(head)
+
+    entries = [{"name": f"{d}/", "kind": "dir", "files": n} for d, n in sorted(dirs.items())]
+    entries += [{"name": f, "kind": "file"} for f in sorted(leaves)]
+    if not entries:
+        return {"path": prefix, "type": "missing", "total": 0, "truncated": False, "entries": []}
+    return {
+        "path": prefix, "type": "dir", "total": len(entries), "truncated": len(entries) > TREE_MAX_ENTRIES,
+        "entries": entries[:TREE_MAX_ENTRIES],
     }
 
 

@@ -164,7 +164,7 @@ async def _principal_error_handler(request: Request, exc: PrincipalError) -> JSO
     return JSONResponse(status_code=_STATUS_BY_CODE.get(exc.code, 400), content=exc.envelope())
 
 
-def _build_mcp_app(store: Store):
+def _build_mcp_app(store: Store, settings: Settings):
     """The code-graph MCP server as an ASGI app, or None if it cannot be built.
 
     Returning the ASGI app rather than the FastMCP object is the whole point: an
@@ -177,7 +177,7 @@ def _build_mcp_app(store: Store):
     try:
         from mcp_code_graph.server import build_server
 
-        return build_server(store).http_app(path="/")
+        return build_server(store, settings=settings).http_app(path="/")
     except Exception as exc:  # noqa: BLE001
         logger.warning("code-graph MCP server not mounted: %s", exc)
         return None
@@ -186,7 +186,7 @@ def _build_mcp_app(store: Store):
 def create_app() -> FastAPI:
     settings = get_settings()
     store = Store(settings.principal_db)
-    mcp_app = _build_mcp_app(store)
+    mcp_app = _build_mcp_app(store, settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

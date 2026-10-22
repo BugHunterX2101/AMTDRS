@@ -813,7 +813,9 @@ docker run -p 8000:8000 principal
 docker run -p 8000:8000 -e NEBIUS_API_KEY=... -e NEBIUS_PROJECT_ID=... principal
 ```
 
-The Dockerfile is two-stage (a Node stage builds the dashboard, a Python stage serves it) and ships a `HEALTHCHECK`. A [`render.yaml`](render.yaml) Blueprint serves **[amtdrs.onrender.com](https://amtdrs.onrender.com)** on a free tier — expect a **cold start of tens of seconds** after idle (one was measured at **33 s**). `GET /healthz` on the live demo reports `"sandbox":"FakeSandbox"` and `"live":false`: **the hosted demo runs the credential-less half and says so.** See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+The Dockerfile is two-stage (a Node stage builds the dashboard, a Python stage serves it) and ships a `HEALTHCHECK`. **[amtdrs.onrender.com](https://amtdrs.onrender.com)** runs this image on Render's free tier, and it is **live**: with `PRINCIPAL_REQUIRE_LIVE=1` it refuses to start unless Token Factory inference and Nebius Sandboxes both verify, so it cannot fall back to the in-process stand-in. As of 2026-10-22, `GET /healthz` on it reports `"sandbox":"ContreeSandbox"`, `"inference_verified":true`, `"sandbox_verified":true` and `"live":true`, and a full job started through its public URL ended **VERIFIED, clean** (6 of 6 tasks, 30,644 tokens, $0.0116 of sandbox cost, injected-fault score 78%; one run, not a rate). The service is named `amtdrs` and is configured through the Render dashboard and API, not through [`render.yaml`](render.yaml), which is the Blueprint for creating a new one.
+
+**What a live public demo costs.** Every job a visitor starts spends the owner's Nebius tokens and sandbox time. The API has no authentication and no per-visitor rate limit, and the request body can set its own `token_budget`, so the only cap is the 2,000,000-token default for a job that does not set one. Treat the URL as something to share deliberately. The free tier also spins down when idle: an earlier credential-less build measured a **33 s** cold start, and the live build, which now runs the capability probe at startup, has not been re-timed. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ---
 
@@ -943,7 +945,7 @@ AMTDRS/
 ├── .github/workflows/ci.yml          lint + contracts · tests (2 OS × 2 Python) · compliance · image build
 ├── CLAUDE.md                         rules for AI coding agents working in this repo
 ├── Dockerfile                        two-stage build; serves with zero credentials; HEALTHCHECK
-├── render.yaml                       Render Blueprint — what deploys amtdrs.onrender.com
+├── render.yaml                       Render Blueprint for a new live service (amtdrs.onrender.com is not linked to it)
 ├── Makefile                          install · doctor · test · lint · bench · demo · docker
 ├── pyproject.toml                    deps, ruff config, import-linter contracts
 ├── LICENSE                           Apache-2.0, verbatim, detectable by GitHub
@@ -966,11 +968,11 @@ AMTDRS/
 
 - **No production deployment has been measured.** The cost argument is arithmetic from third-party list prices plus one real run.
 - **Not benchmarked on SWE Atlas.** The leaderboard is cited as evidence the problem is open, not as a result for Principal. `bench/tasks.json` pins **two tasks, not a suite**, and no benchmark numbers are published.
-- **Six live end-to-end runs**, one of them VERIFIED, are six data points, **not a success rate**.
+- **Six live end-to-end runs**, one of them VERIFIED, are six data points, **not a success rate**. Three later runs on the `mini_repo` task also ended VERIFIED (arm C of the second benchmark, one through a local API server, one through the hosted URL); they are one task and not a rate either.
 - **Nebius prices are unconfirmed.** They sit behind the console login; the table above is third-party data.
 - **Gate 3 (test execution) is Python-only.** The code graph also parses TypeScript, but test execution stops at Python.
 - An **untested private symbol can still be deleted**, and **sandbox network egress is not yet disableable** through the platform SDK.
-- The **hosted demo is not live-verified** — it runs the credential-less half, and `/healthz` says so.
+- The **hosted demo is live** (see above), but it has been exercised with one job on one fixture, its cold start in live mode has not been timed, and the API is unauthenticated and not rate-limited.
 
 ## Project provenance
 
@@ -1011,7 +1013,9 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **Deloitte: 21–40% of IT spend** | Deloitte's own [technical-debt page](https://www.deloitte.com/us/en/insights/topics/technology-management/technical-debt-impact.html): "technical debt accounts for 21% to 40% of an organization's IT spending," citing its 2026 study | Confirmed; Deloitte flags it as an estimate. An earlier draft also credited McKinsey with "the same band"; McKinsey's 20–40% measures a share of *technology estate value*, so that was **removed** |
 | **Moderne: $30M Series B, Acrew Capital, 11 Feb 2025** | TechCrunch article | Confirmed |
 | **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | Confirmed within noise: *no change*, not an improvement |
-| **Hosted demo reports FakeSandbox, `live:false`; 33 s cold start** | `curl` of the live `/healthz` and `/` | Confirmed |
+| **Hosted demo reports `ContreeSandbox`, inference and sandbox verified, `live:true`** | `curl` of the live `/healthz`, 2026-10-22, after the service was given its credentials | Confirmed |
+| **A full job on the hosted URL ends VERIFIED, clean (6 of 6 tasks)** | `POST /jobs` to `amtdrs.onrender.com`, then its `evidence.md`, which reads "Executed on: LIVE" | Confirmed for one run; not a rate |
+| ~~Hosted demo reports FakeSandbox, `live:false`; 33 s cold start~~ | `curl` of the live `/healthz` and `/` before the service had credentials | Superseded: true of the earlier build only. The cold start has not been re-timed in live mode |
 | **Model prices** | Nebius's page is login-gated | Caveat: **third-party only**. Ultra $1/$3 from two listings; Nano $0.06/$0.24 (an earlier draft said $0.05/$0.20 with no source I could find); Super is a reseller price |
 | "80% on SWE-Bench Verified" | no source found | **Removed** from this README |
 | $85–110/hour engineering cost | carried from the design docs | Caveat: an assumption, labelled as one |

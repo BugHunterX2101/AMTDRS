@@ -6,9 +6,14 @@
 # automatically (Render's injected value overrides the ENV PORT=8000 default),
 # so no port configuration is needed here.
 #
-# Runs with zero credentials against the bundled fixture (FakeSandbox) by
-# default. Add NEBIUS_API_KEY / NEBIUS_PROJECT_ID as secret env vars in the
-# Render dashboard to switch it to real Token Factory inference and Sandboxes.
+# This service never uses the in-process FakeSandbox. PRINCIPAL_REQUIRE_LIVE makes
+# startup fail unless Token Factory inference and Nebius Sandboxes both verify, so a
+# missing or wrong credential stops the deploy, and Render keeps serving the previous
+# one, instead of quietly serving results that are not a platform measurement.
+#
+# NEBIUS_API_KEY and NEBIUS_PROJECT_ID are secrets: `sync: false` keeps their values
+# out of this file. Set both in the Render dashboard (Environment) BEFORE the first
+# deploy of this file, or that deploy will fail its health check.
 services:
   - type: web
     name: principal
@@ -20,3 +25,9 @@ services:
     envVars:
       - key: PRINCIPAL_SLOW_MO_MS
         value: "0"
+      - key: PRINCIPAL_REQUIRE_LIVE
+        value: "1"
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: NEBIUS_PROJECT_ID
+        sync: false

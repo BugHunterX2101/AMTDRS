@@ -558,7 +558,7 @@ function Verdict({ verdict, prUrl }) {
   );
 }
 
-export function Outcome({ job, verdict, prUrl, pending = false }) {
+export function Outcome({ job, verdict, prUrl, health, pending = false }) {
   if (verdict) return <Verdict verdict={verdict} prUrl={prUrl} />;
   // The verdict comes from a status request that lands after the stream says the
   // run is over. Holding its place stops the page jumping when it arrives.
@@ -635,11 +635,14 @@ export function Outcome({ job, verdict, prUrl, pending = false }) {
           way onto this card — there is no state in between where an unverified diff
           is the answer.
         </p>
-        <p className="hint">
-          Without an inference key configured, a run gets as far as the verified
-          green baseline, the code graph and the blast radius — all of it real —
-          and then stops at planning, because there is no model to plan with.
-        </p>
+        {/* Only where it is true: the hosted service always has a key. */}
+        {health && !health.inference_configured && (
+          <p className="hint">
+            This server has no inference key configured, so a run gets as far as the
+            verified green baseline, the code graph and the blast radius — all of it
+            real — and then stops at planning, because there is no model to plan with.
+          </p>
+        )}
       </div>
     );
   }

@@ -1,4 +1,3 @@
-import { useReveal } from "./useReveal";
 
 const ROWS = [
   {
@@ -35,10 +34,9 @@ const ROWS = [
 ];
 
 export function Compare() {
-  const [ref, shown] = useReveal();
   return (
-    <section className="section section--tight" id="compare" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section section--tight" id="compare">
+      <div className="wrap reveal">
         <div className="eyebrow">Positioning</div>
         <h2 className="section-title">
           The comparison isn't Copilot. It's who you'd trust to merge unattended.

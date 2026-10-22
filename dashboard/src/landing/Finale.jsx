@@ -1,11 +1,9 @@
-import { useReveal } from "./useReveal";
 import { ArrowRight, Github } from "./icons";
 
 export function Finale() {
-  const [ref, shown] = useReveal();
   return (
-    <section className="section" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section">
+      <div className="wrap reveal">
         <div className="finale">
           <span className="badge badge--green">
             <span className="pulse-dot" aria-hidden="true" />
@@ -15,12 +13,11 @@ export function Finale() {
             Send it a goal and a target symbol. See what comes back.
           </h2>
           <p>
-            The hosted console needs no sign-up and no credentials. It runs a real
-            baseline, a real code graph and a real blast radius against a bundled
-            fixture repository in front of you — the deterministic half, the half
-            a model cannot fake. Add your own Token Factory key and the same
-            console shows the fork tree, every candidate's verdict and the full
-            diff one click away.
+            The hosted console needs no sign-up and runs the whole pipeline live, on
+            Nebius Sandboxes and Token Factory: the green baseline, the code graph and
+            the blast radius, then the fork tree, every candidate's verdict and the
+            full diff as they happen. It starts on the bundled fixture repository; a
+            job spends real tokens and sandbox time.
           </p>
           <div className="hero-actions">
             <a className="btn btn--primary btn--lg btn--ring" href="/app/">

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, Copy, Github, Play } from "./icons";
-import { ForkRaceViz } from "./ForkRaceViz";
-import { Backdrop } from "../Backdrop";
+import { lazy, Suspense, useState } from "react";
+import { ArrowRight, Check, Copy, Play } from "./icons";
+import { LiveStatus } from "./LiveStatus";
+
+// The replay (WebGL and the recorded run) loads after the headline has painted.
+const RunReplay = lazy(() => import("./replay/RunReplay"));
 
 const CLONE = "git clone https://github.com/BugHunterX2101/AMTDRS.git";
 
@@ -13,48 +15,9 @@ const TRUST = [
 ];
 
 export function Hero() {
-  const stage = useRef(null);
+  const [stage, setStage] = useState(null);
+  const [frame, setFrame] = useState(null);
   const [copied, setCopied] = useState(false);
-
-  // The card stack leans toward the pointer. Only a fine pointer that hovers
-  // gets it (a touch tap would leave the stack stuck mid-tilt), and only with
-  // motion allowed. Writes are two CSS variables per frame; the transform runs
-  // on the compositor, so nothing here touches layout.
-  useEffect(() => {
-    const el = stage.current;
-    const ok = "(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
-    if (!el || !window.matchMedia(ok).matches) return undefined;
-    let rect = null;
-    let frame = 0;
-    const onEnter = () => {
-      rect = el.getBoundingClientRect();
-    };
-    const onMove = (e) => {
-      if (!rect) rect = el.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width - 0.5;
-      const y = (e.clientY - rect.top) / rect.height - 0.5;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        el.style.setProperty("--rx", `${(-y * 8).toFixed(2)}deg`);
-        el.style.setProperty("--ry", `${(x * 10).toFixed(2)}deg`);
-      });
-    };
-    const onLeave = () => {
-      cancelAnimationFrame(frame);
-      rect = null;
-      el.style.removeProperty("--rx");
-      el.style.removeProperty("--ry");
-    };
-    el.addEventListener("pointerenter", onEnter);
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerleave", onLeave);
-    return () => {
-      cancelAnimationFrame(frame);
-      el.removeEventListener("pointerenter", onEnter);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerleave", onLeave);
-    };
-  }, []);
 
   // No clipboard (an insecure origin) leaves the command selectable by hand.
   const copy = () =>
@@ -65,36 +28,25 @@ export function Hero() {
 
   return (
     <header className="hero" id="top">
-      <Backdrop from="#a371f7" to="#3fb950" alpha={0.4} />
-      <div className="hero-glow" aria-hidden="true" />
-      <div className="hero-grid" aria-hidden="true" />
+      {/* Full-bleed stage the replay's canvas is portalled into, behind the text. */}
+      <div className="hero-stage" ref={setStage} aria-hidden="true" />
+      <div className="hero-scrim" aria-hidden="true" />
+
       <div className="wrap hero-inner">
-        <div>
-          <span className="badge badge--nvidia">
-            Nebius × NVIDIA Global AI Hackathon 2026
-          </span>
+        <div className="hero-copy">
+          <LiveStatus />
           <h1>
-            Refactors that arrive <span className="accent">already verified.</span>
+            Refactors that arrive <em>already verified.</em>
           </h1>
           <p className="hero-sub">
-            Principal is an autonomous technical debt remediation swarm. It races
-            parallel refactor candidates inside Token Factory Sandboxes and opens a
-            pull request only when the repository's own test suite passes — not
-            when a model thinks it should.
+            Principal is an autonomous technical debt remediation swarm. It races parallel refactor candidates
+            inside Token Factory Sandboxes and opens a pull request only when the repository's own test suite
+            passes — not when a model thinks it should.
           </p>
           <div className="hero-actions">
             <a className="btn btn--primary btn--lg" href="/app/">
               <Play aria-hidden="true" />
-              Watch a live run
-            </a>
-            <a
-              className="btn btn--lg"
-              href="https://github.com/BugHunterX2101/AMTDRS"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Github aria-hidden="true" />
-              View source
+              Open the live console
             </a>
             <a className="btn btn--ghost btn--lg" href="#how-it-works">
               How it works
@@ -114,32 +66,19 @@ export function Hero() {
             </button>
           </div>
           <p className="hero-note">
-            No sign-up: the hosted console runs a bundled repo through a real green
-            baseline, code graph and blast radius. Generating patches needs your own
-            inference key. Free-tier host, so the first load can take 30–60s.
+            The hosted console runs on the live Nebius sandbox and Token Factory, so a job started there spends real
+            tokens and sandbox time. It is a free-tier host: after a quiet spell, the first request waits for it to
+            wake.
           </p>
         </div>
 
-        {/* The two panels behind the race are the candidates' other sandboxes:
-            the same parallel fork the card animates, given depth. */}
-        <div className="stage" ref={stage}>
-          <div className="stack">
-            <div className="stack-ghost stack-ghost--2" aria-hidden="true" />
-            <div className="stack-ghost stack-ghost--1" aria-hidden="true" />
-            <div className="card" aria-label="Simulated candidate race">
-              <div className="card-head">
-                <span className="dots" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <h3>fork race — task 07 · auth.session.create</h3>
-              </div>
-              <div className="card-body">
-                <ForkRaceViz compact />
-              </div>
-            </div>
-          </div>
+        {/* Empty on purpose: the box the replay's tree is framed into. */}
+        <div className="hero-window" ref={setFrame} aria-hidden="true" />
+
+        <div className="hero-replay">
+          <Suspense fallback={<div className="replay replay--loading" aria-hidden="true" />}>
+            <RunReplay stage={stage} frame={frame} />
+          </Suspense>
         </div>
       </div>
 

@@ -1,4 +1,3 @@
-import { useReveal } from "./useReveal";
 import { ArrowRight } from "./icons";
 
 /* The four outcomes, worded to match principal/outcome.py. The page says what
@@ -43,10 +42,9 @@ const BUNDLE = [
 ];
 
 export function Outcomes() {
-  const [ref, shown] = useReveal();
   return (
-    <section className="section" id="outcomes" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section" id="outcomes">
+      <div className="wrap reveal">
         <div className="eyebrow">What you get back</div>
         <h2 className="section-title">A green run is not always a safe one. Principal says which.</h2>
         <p className="section-lede">

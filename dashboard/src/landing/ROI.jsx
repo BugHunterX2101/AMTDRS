@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useReveal } from "./useReveal";
 
 const HOURS_PER_ENGINEER_YEAR = 2080;
 
@@ -11,7 +10,6 @@ const fmtUSD = new Intl.NumberFormat("en-US", {
 const fmtNum = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 export function ROI() {
-  const [ref, shown] = useReveal();
   const [engineers, setEngineers] = useState(40);
   const [salary, setSalary] = useState(180000);
   const [debtShare, setDebtShare] = useState(33);
@@ -26,8 +24,8 @@ export function ROI() {
   }, [engineers, salary, debtShare, addressable]);
 
   return (
-    <section className="section" id="roi" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section" id="roi">
+      <div className="wrap reveal">
         <div className="eyebrow">The business case</div>
         <h2 className="section-title">
           What mechanical migration work actually costs your team.

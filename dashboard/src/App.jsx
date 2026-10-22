@@ -210,7 +210,7 @@ export default function App() {
   // recorded before the link was written ahead of its terminal event.
   const prUrl = job.prUrl || status?.pr_url || null;
   const outcome = (
-    <Outcome job={job} verdict={verdict} prUrl={prUrl} pending={terminal && !status && !gaveUp} />
+    <Outcome job={job} verdict={verdict} prUrl={prUrl} health={health} pending={terminal && !status && !gaveUp} />
   );
 
   return (

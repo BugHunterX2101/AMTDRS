@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useReveal } from "./useReveal";
 import { InlineText } from "./InlineText";
 
 const GATES = [
@@ -72,11 +71,10 @@ const GATES = [
 
 export function Pipeline() {
   const [open, setOpen] = useState(3);
-  const [ref, shown] = useReveal();
 
   return (
-    <section className="section" id="how-it-works" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section" id="how-it-works">
+      <div className="wrap reveal">
         <div className="eyebrow">How it works</div>
         <h2 className="section-title">
           Five gates reject. Two checks say how far to trust what is left.

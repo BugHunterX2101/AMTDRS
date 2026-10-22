@@ -1,4 +1,3 @@
-import { useReveal } from "./useReveal";
 import { InlineText } from "./InlineText";
 import { Scale, XCircle, Lock, GitBranch, Shield, Layers } from "./icons";
 
@@ -54,10 +53,9 @@ function spotlight(e) {
 }
 
 export function Features() {
-  const [ref, shown] = useReveal();
   return (
-    <section className="section section--tight" id="guardrails" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section section--tight" id="guardrails">
+      <div className="wrap reveal">
         <div className="eyebrow">Guardrails, enforced in code</div>
         <h2 className="section-title">
           Six ways the swarm is kept honest — none of them a prompt.

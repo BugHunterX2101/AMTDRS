@@ -1,4 +1,3 @@
-import { useReveal } from "./useReveal";
 import { InlineText } from "./InlineText";
 import { ChevronDown } from "./icons";
 
@@ -33,7 +32,7 @@ const ITEMS = [
   },
   {
     q: "Is any of this actually benchmarked?",
-    a: "The harness exists and runs; a published result does not yet. `make eval` checks credentials, then runs three arms — a single ungated shot, one gated candidate, and the full swarm — on every task in `bench/tasks.json`, including a repository whose tests pass but are weak. It reports verified, unverified and failed runs separately, excludes platform failures instead of counting them against a patch, and stamps the report LIVE or NOT LIVE. It has not been run against Scale AI's SWE Atlas Refactoring subset, so no comparison to that leaderboard is claimed.",
+    a: "Live, and small. `make eval` checks credentials, then runs three arms — a single ungated shot, one gated candidate, and the full swarm — on every task in `bench/tasks.json`, on the real Nebius sandbox and real inference, and stamps the report LIVE or NOT LIVE. The run recorded on 2026-10-22, one run per cell on two fixture repositories, produced the first VERIFIED outcome: the full swarm on `mini_repo`. On `weak_repo`, whose tests pass but are weak, the swarm stopped at UNVERIFIED with an injected-fault score of 0.0 against a 0.6 floor, which is that fixture doing its job. Two tasks and one run per cell show nothing about which arm is better; the README records every cell and its cause. It has not been run against Scale AI's SWE Atlas Refactoring subset, so no comparison to that leaderboard is claimed.",
   },
   {
     q: "What do Verified, Unverified, Failed and Error mean?",
@@ -44,16 +43,15 @@ const ITEMS = [
     a: "Only the orchestrator, and only after the integration gate is green. No agent role — Planner, Coder, Repairer or Reporter — ever receives a token that can reach GitHub. Agents produce diffs; opening the PR is deterministic code, not a tool an LLM is trusted with. It's an import contract too: `agents` may not import `publish`.",
   },
   {
-    q: "What does the hosted console do without credentials?",
-    a: "It runs the deterministic half for real: it builds a verified green baseline in an in-process sandbox with real `git` and real `pytest`, parses the repository with tree-sitter, and computes the blast radius — then stops at planning, because generating a patch needs an inference key and there isn't one. That's the honest boundary, and it's deliberately where the demo sits: everything a model can't fake is what you can check for free. Every run is labelled LIVE (real Nebius sandbox and real inference) or NOT LIVE (a local stand-in), and a NOT LIVE result is never a measurement of the platform. Point it at a real repository with your own Token Factory key to see the rest.",
+    q: "What does the hosted console run on?",
+    a: "The real platform, and nothing else. The hosted service will not start unless Token Factory inference and Nebius Sandboxes both verify at startup, and it never falls back to the in-process stand-in. A job there builds a verified green baseline with real `git` and real `pytest` in a Nebius sandbox, parses the repository with tree-sitter, computes the blast radius, then plans and races candidates on Nemotron 3, spending real tokens and sandbox time. Every run is labelled LIVE or NOT LIVE, and a NOT LIVE result, such as a local checkout with no credentials, is never presented as a measurement of the platform.",
   },
 ];
 
 export function FAQ() {
-  const [ref, shown] = useReveal();
   return (
-    <section className="section section--tight" id="faq" ref={ref}>
-      <div className={`wrap reveal${shown ? " is-shown" : ""}`}>
+    <section className="section section--tight" id="faq">
+      <div className="wrap reveal">
         <div className="eyebrow">Questions a skeptical engineer would ask</div>
         <h2 className="section-title">FAQ</h2>
 

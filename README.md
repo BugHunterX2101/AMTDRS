@@ -709,7 +709,7 @@ cd dashboard && npm install && npm run build
 - **Run economics**, the NoPR report, and a **cancel** control that also stops in-flight sandbox operations
 - A run id in the URL, so **a reload or a slept laptop resumes the same run**; `PRINCIPAL_SLOW_MO_MS=250` paces events so the fan-out is legible on video
 
-**Frontend performance** is treated as a budget, not an afterthought. The WebGL2 backdrop renders at half resolution, is capped at 30 fps, pauses off-screen and in hidden tabs, and freezes under `prefers-reduced-motion`; the hero's 3D card stack is pure CSS transforms; fonts are self-hosted. Measured side by side against the previous build (median of 8 interleaved desktop runs, 4 CPU-throttled mobile runs): first paint **514 → 518 ms** desktop and **1206 → 1214 ms** throttled mobile, **0 layout shift**, **148 KB** transferred, **7 requests**.
+**Frontend performance** is treated as a budget, not an afterthought. The landing page's one moving picture is the hero: a raw WebGL2 replay of a recorded live run (`landing/replay/`), drawn with a `low-power` GPU preference, the device pixel ratio capped at 1.5, 30 fps, paused off-screen and in hidden tabs, and a single still frame under `prefers-reduced-motion`. Everything else that moves is CSS scroll-driven animation (`animation-timeline: view()`), applied only where the browser supports it and motion is allowed; the content is visible without it. The console has no WebGL at all: its backdrop is static gradients that crossfade on the verdict. Fonts are self-hosted woff2 files shared by both pages. The earlier measurement (first paint **514 ms** desktop, **1206 ms** throttled mobile, **0 layout shift**, **148 KB**, **7 requests**) was taken on the previous design and has not been repeated for this one.
 
 ### Code-graph MCP server
 
@@ -908,11 +908,11 @@ AMTDRS/
 │   ├── vite.config.js                multi-page build, dev proxy to the API
 │   └── src/
 │       ├── App.jsx · components.jsx  console layout; run id lives in ?job=
-│       ├── Backdrop.jsx              WebGL2 node-lattice backdrop, half-res, 30 fps cap
 │       ├── useJobStream.js           the event-log reducer — resumable via Last-Event-ID
 │       ├── styles.css                console styles
 │       └── landing/                  Hero · Pipeline · Outcomes · Evidence · Features · ROI
-│                                     Compare · FAQ · Finale · Footer · ForkRaceViz · fonts/
+│                                     Compare · FAQ · Finale · Footer · AttemptLedger · LiveStatus · fonts/
+│           └── replay/               a recorded live run, its pure state model, and the WebGL2 scene that replays it
 │
 ├── bench/                            three arms, honest bucketed scoring
 │   ├── harness.py                    drives a real run_job() per (task, arm); live only
@@ -1012,7 +1012,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 | **DORA: AI is "an amplifier"** | quoted from the DORA page | Confirmed (the throughput/instability detail was *not* confirmed from the primary report, so it is not claimed) |
 | **Deloitte: 21–40% of IT spend** | Deloitte's own [technical-debt page](https://www.deloitte.com/us/en/insights/topics/technology-management/technical-debt-impact.html): "technical debt accounts for 21% to 40% of an organization's IT spending," citing its 2026 study | Confirmed; Deloitte flags it as an estimate. An earlier draft also credited McKinsey with "the same band"; McKinsey's 20–40% measures a share of *technology estate value*, so that was **removed** |
 | **Moderne: $30M Series B, Acrew Capital, 11 Feb 2025** | TechCrunch article | Confirmed |
-| **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | Confirmed within noise: *no change*, not an improvement |
+| **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | Confirmed within noise: *no change*, not an improvement. Measured on the previous design; not repeated after the 2026-10-22 redesign |
 | **Hosted demo reports `ContreeSandbox`, inference and sandbox verified, `live:true`** | `curl` of the live `/healthz`, 2026-10-22, after the service was given its credentials | Confirmed |
 | **A full job on the hosted URL ends VERIFIED, clean (6 of 6 tasks)** | `POST /jobs` to `amtdrs.onrender.com`, then its `evidence.md`, which reads "Executed on: LIVE" | Confirmed for one run; not a rate |
 | ~~Hosted demo reports FakeSandbox, `live:false`; 33 s cold start~~ | `curl` of the live `/healthz` and `/` before the service had credentials | Superseded: true of the earlier build only. The cold start has not been re-timed in live mode |

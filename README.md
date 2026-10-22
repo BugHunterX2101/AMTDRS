@@ -31,7 +31,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 
 | | |
 |---|---|
-| **Track** | **Coding and Agentic Engineering** — agents that write, run and test code in Token Factory Sandboxes |
+| **Track** | **Coding and Agentic Engineering** — agents that write, run and test code in Nebius Sandboxes |
 | **Runs on** | **Nebius Token Factory** — inference **and** Sandboxes |
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
@@ -124,7 +124,7 @@ Ordered so that most bad candidates die *before* they touch a sandbox — which 
 |---|---|---|---|
 | **1 · Scope** (`gates/scope.py`) | the patch touches only its one target file — never a test, a manifest or a lockfile | local | microseconds |
 | **2 · Syntax** (`gates/syntax.py`) | every changed file still parses (tree-sitter) | local | milliseconds |
-| **3 · Local tests** (`gates/tests.py`) | the tests that actually cover the changed lines pass | Token Factory Sandbox | seconds |
+| **3 · Local tests** (`gates/tests.py`) | the tests that actually cover the changed lines pass | Nebius sandbox | seconds |
 | **4 · Integration + behaviour** (`gates/behaviour.py`) | all accepted patches pass **together**; public API delta matches the plan's *declared* removals; **coverage may not fall**; **test count may not shrink** | Sandbox, once | seconds |
 | **5 · Security** (`gates/security.py`) | the patch introduces **no new** security finding — *differential*, rule-based, deterministic | local | milliseconds |
 | **4b · Blast-radius check** (`gates/impact.py`) | what the patch changed matches what the graph says it should have reached | local + sandbox | seconds |
@@ -228,7 +228,7 @@ flowchart LR
     P -->|"draft PR"| GH["GitHub"]
     REV["Human reviewer"] -->|"approves, merges"| GH
     P <-->|"chat completions"| TF["Token Factory<br/>inference<br/>(NVIDIA Nemotron 3)"]
-    P <-->|"checkpoint / fork / run"| SBX["Token Factory<br/>Sandboxes<br/>(microVMs)"]
+    P <-->|"checkpoint / fork / run"| SBX["Nebius<br/>Sandboxes<br/>(microVMs)"]
     P -->|"clone at commit"| REPO[("Target repository")]
     SBX -->|"test results,<br/>coverage"| P
 
@@ -256,7 +256,7 @@ flowchart TB
     GATES --> SANDBOX["Sandbox client"]
     MCP["code-graph MCP<br/>5 read-only tools"] --> STORE
     MODELS --> TF2["Token Factory<br/>inference"]
-    SANDBOX --> SBX2["Token Factory<br/>Sandboxes"]
+    SANDBOX --> SBX2["Nebius<br/>Sandboxes"]
     PUB --> GH2["GitHub API"]
 
     style JOB fill:#2563eb,color:#fff
@@ -482,7 +482,7 @@ Gates 3 and 4 are real `pytest` runs on real installed dependencies in an isolat
 | Component | Use |
 |---|---|
 | Token Factory OpenAI-compatible API | all inference (`openai` SDK, changed `base_url`) |
-| Token Factory Sandboxes (`contree-sdk`) | baseline build, gates 3 and 4, strength audit |
+| Nebius Sandboxes (`contree-sdk`) | baseline build, gates 3 and 4, strength audit |
 | Rate-limit headers | live budget headroom in `GET /jobs/{id}` and the dashboard |
 | Model registry (`GET /v1/models`) | model ids resolved at boot, so a typo fails in seconds, not mid-job |
 | NVIDIA Nemotron 3 Nano / Super / Ultra | candidates / repairs / planning |
@@ -694,7 +694,7 @@ Two pages, one `dist/`, both served by `principal serve`:
 
 | Path | Page |
 |---|---|
-| `/` | **landing page** — what Principal is and why the guarantee is the product |
+| `/` | **landing page** — what Principal is and why the guarantee is the product, with a status chip that reads `/healthz` once a minute |
 | `/app/` | **operator console** — the live run |
 | `/app/?job=<job-id>` | any past run, replayed from the event log by the same reducer |
 
@@ -703,13 +703,14 @@ cd dashboard && npm install && npm run build
 ```
 
 - A **LIVE / NOT LIVE** badge taken from the job's own recorded provenance
+- The **pipeline**: the stages the job has finished, the ones it passed without entering (marked skipped), and, for a stopped run, the stage it stopped in, coloured by how it stopped
 - The **live fork tree** and per-candidate gate progress
 - The **outcome** (verified / unverified / failed / error) with every open reason, plus the **blast-radius check** and **test strength** panels
 - **Evidence downloads** (zip, report, JSON) and an **evidence drawer** — diff, test output and coverage delta for any attempt
 - **Run economics**, the NoPR report, and a **cancel** control that also stops in-flight sandbox operations
 - A run id in the URL, so **a reload or a slept laptop resumes the same run**; `PRINCIPAL_SLOW_MO_MS=250` paces events so the fan-out is legible on video
 
-**Frontend performance** is treated as a budget, not an afterthought. Two WebGL2 scenes run, both in raw WebGL2 with no 3D library: the hero's replay of a recorded live run (`landing/replay/`), and a gate cascade behind both pages (`src/field/`): candidates fall from the planner through seven sieve planes, one per gate, rejected ones fall away as embers, and the survivors converge into a beam. On the landing page its camera follows the scroll and the pointer, and the beam lands on the closing call to action; in the console the camera descends one stage at a time as the live job advances, and its colour and pace follow the job's state. Each draws with a `low-power` GPU preference and a capped device pixel ratio, at 30 fps, paused in hidden tabs (the replay also off-screen), and as a single still frame under `prefers-reduced-motion`; the cascade's geometry is uploaded once and every particle's path is computed in the vertex shader. Section reveals are CSS scroll-driven animation (`animation-timeline: view()`), applied only where the browser supports it and motion is allowed; the content is visible without it. Fonts are self-hosted woff2 files shared by both pages. The earlier measurement (first paint **514 ms** desktop, **1206 ms** throttled mobile, **0 layout shift**, **148 KB**, **7 requests**) was taken on the previous design and has not been repeated for this one.
+**Frontend performance** is treated as a budget, not an afterthought. Two WebGL2 scenes run, both in raw WebGL2 with no 3D library: the hero's replay of a recorded live run (`landing/replay/`), and a gate cascade behind both pages (`src/field/`): candidates fall from the planner through seven sieve planes, one per gate, rejected ones fall away as embers, and the survivors converge into a beam. On the landing page its camera follows the scroll and the pointer, and the beam lands on the closing call to action; in the console the camera descends one stage at a time as the live job advances, and its colour and pace follow the job's state. The copy stays readable over it: cards and tables are opaque, the left of a wide screen (the copy column) is dimmed, the whole field is dimmer on a phone, and where the hero stacks on a narrow screen the cascade is hidden behind the replay so the two scenes never draw over each other. Each draws with a `low-power` GPU preference and a capped device pixel ratio, at 30 fps, paused in hidden tabs (the replay also off-screen), and as a single still frame under `prefers-reduced-motion`; the cascade's geometry is uploaded once and every particle's path is computed in the vertex shader. Section reveals are CSS scroll-driven animation (`animation-timeline: view()`), applied only where the browser supports it and motion is allowed; the content is visible without it. Fonts are self-hosted woff2 files shared by both pages. The earlier measurement (first paint **514 ms** desktop, **1206 ms** throttled mobile, **0 layout shift**, **148 KB**, **7 requests**) was taken on the previous design and has not been repeated for this one.
 
 ### Code-graph MCP server
 

@@ -709,7 +709,7 @@ cd dashboard && npm install && npm run build
 - **Run economics**, the NoPR report, and a **cancel** control that also stops in-flight sandbox operations
 - A run id in the URL, so **a reload or a slept laptop resumes the same run**; `PRINCIPAL_SLOW_MO_MS=250` paces events so the fan-out is legible on video
 
-**Frontend performance** is treated as a budget, not an afterthought. The landing page's one moving picture is the hero: a raw WebGL2 replay of a recorded live run (`landing/replay/`), drawn with a `low-power` GPU preference, the device pixel ratio capped at 1.5, 30 fps, paused off-screen and in hidden tabs, and a single still frame under `prefers-reduced-motion`. Everything else that moves is CSS scroll-driven animation (`animation-timeline: view()`), applied only where the browser supports it and motion is allowed; the content is visible without it. The console has no WebGL at all: its backdrop is static gradients that crossfade on the verdict. Fonts are self-hosted woff2 files shared by both pages. The earlier measurement (first paint **514 ms** desktop, **1206 ms** throttled mobile, **0 layout shift**, **148 KB**, **7 requests**) was taken on the previous design and has not been repeated for this one.
+**Frontend performance** is treated as a budget, not an afterthought. Two WebGL2 scenes run, both in raw WebGL2 with no 3D library: the hero's replay of a recorded live run (`landing/replay/`), and a code-graph field behind both pages (`src/field/`) whose camera follows the scroll and the pointer and whose colour follows the live job's state in the console. Each draws with a `low-power` GPU preference and a capped device pixel ratio, at 30 fps, paused in hidden tabs (the replay also off-screen), and as a single still frame under `prefers-reduced-motion`; the field's geometry is uploaded once and all of its motion is in the shaders. Section reveals are CSS scroll-driven animation (`animation-timeline: view()`), applied only where the browser supports it and motion is allowed; the content is visible without it. Fonts are self-hosted woff2 files shared by both pages. The earlier measurement (first paint **514 ms** desktop, **1206 ms** throttled mobile, **0 layout shift**, **148 KB**, **7 requests**) was taken on the previous design and has not been repeated for this one.
 
 ### Code-graph MCP server
 
@@ -908,6 +908,7 @@ AMTDRS/
 │   ├── vite.config.js                multi-page build, dev proxy to the API
 │   └── src/
 │       ├── App.jsx · components.jsx  console layout; run id lives in ?job=
+│       ├── field/                    WebGL2 code-graph field behind both pages; toned by the live job
 │       ├── useJobStream.js           the event-log reducer — resumable via Last-Event-ID
 │       ├── styles.css                console styles
 │       └── landing/                  Hero · Pipeline · Outcomes · Evidence · Features · ROI

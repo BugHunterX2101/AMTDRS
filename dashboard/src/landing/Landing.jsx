@@ -10,10 +10,12 @@ import { Compare } from "./Compare";
 import { FAQ } from "./FAQ";
 import { Finale } from "./Finale";
 import { Footer } from "./Footer";
+import { Field } from "../field/Field";
 
 export default function Landing() {
   return (
     <>
+      <Field />
       <a className="skip-link" href="#main">
         Skip to main content
       </a>

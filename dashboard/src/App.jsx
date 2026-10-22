@@ -17,6 +17,7 @@ import {
   Steps,
   TaskBoard,
 } from "./components";
+import { Field } from "./field/Field";
 
 // The run id lives in the URL, not only in component state. Without this a
 // reload — or a laptop that slept long enough for the tab to be discarded —
@@ -221,6 +222,7 @@ export default function App() {
         <i className="a-unverified" />
         <i className="a-failed" />
         <i className="a-error" />
+        <Field tone={mood} gain={0.8} />
       </div>
       <div className="app">
         <Masthead

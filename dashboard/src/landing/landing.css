@@ -282,9 +282,9 @@ main {
 
 /* ------------------------------------------------------------------ stage -- */
 
-/* The hero's replay canvas lives here, full-bleed behind the headline. It is
-   confined to the hero: behind the whole page it would put moving light under
-   body copy and make the nav re-blur an animating layer every frame. */
+/* The hero's replay canvas lives here, full-bleed behind the headline and
+   confined to the hero. The quieter code-graph field behind the whole page is
+   a separate layer (see "field"). */
 .hero-stage {
   position: absolute;
   inset: 0;
@@ -314,7 +314,7 @@ main {
   z-index: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 86%, transparent) 32%, transparent 60%),
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 62%, transparent) 0%, color-mix(in srgb, var(--bg) 40%, transparent) 36%, transparent 60%),
     linear-gradient(to bottom, transparent 64%, var(--bg) 100%),
     radial-gradient(900px 520px at 78% 42%, color-mix(in srgb, var(--green) 7%, transparent), transparent 70%),
     radial-gradient(700px 420px at 8% -10%, color-mix(in srgb, var(--amber) 8%, transparent), transparent 70%);
@@ -325,6 +325,23 @@ main,
 .footer {
   position: relative;
   z-index: 1;
+}
+
+/* ------------------------------------------------------------------ field -- */
+
+/* The code-graph field (src/field) behind every section. Dim by design: it sits
+   under body copy, so its lines stay near the grain's level and only the moving
+   light and the blast radius rise above it. Cards are solid and cover it. */
+.field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+  animation: stage-in 1.6s var(--ease) 0.1s forwards;
 }
 
 /* ------------------------------------------------------------------ nav -- */
@@ -1008,7 +1025,7 @@ main,
   margin-top: var(--s7);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: var(--bg-2);
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
 }
 
 .trustbar-inner {
@@ -2051,7 +2068,7 @@ table.compare td:nth-child(n + 2) {
      top instead of from the left, and let the tree show through lower down. */
   .hero-scrim {
     background:
-      linear-gradient(to bottom, color-mix(in srgb, var(--bg) 92%, transparent) 0%, color-mix(in srgb, var(--bg) 70%, transparent) 46%, color-mix(in srgb, var(--bg) 35%, transparent) 70%, var(--bg) 100%),
+      linear-gradient(to bottom, color-mix(in srgb, var(--bg) 66%, transparent) 0%, color-mix(in srgb, var(--bg) 48%, transparent) 46%, color-mix(in srgb, var(--bg) 22%, transparent) 70%, transparent 100%),
       radial-gradient(700px 420px at 50% 72%, color-mix(in srgb, var(--green) 8%, transparent), transparent 70%);
   }
   .roi {

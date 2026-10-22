@@ -97,12 +97,12 @@ body::before {
 
 /* ---------------------------------------------------------------- ambient -- */
 
-/* The room takes the colour of the verdict, and costs nothing to do it. This
-   replaced a full-screen WebGL lattice that ran under a data-dense console and,
-   because every panel blurred what was behind it, forced a re-blur of a moving
-   canvas for each of twelve panels on every frame. Here the five moods are
-   static gradients stacked in one layer, and a change is an opacity crossfade:
-   compositor-only, no layout, no paint, no GPU work while nothing changes. */
+/* The room takes the colour of the verdict. The five moods are static
+   gradients stacked in one layer, and a change is an opacity crossfade. Over
+   them runs the code-graph field (src/field), toned by the same mood: blue and
+   busy while candidates race, then the verdict's colour. An earlier full-screen
+   WebGL layer here was expensive because every panel blurred what was behind
+   it; panels are solid now, so the field costs only its own 30 fps draw. */
 .ambient {
   position: fixed;
   inset: 0;
@@ -142,6 +142,7 @@ body::before {
   opacity: 1;
 }
 .ambient[data-mood="idle"] .a-run { opacity: 0.6; }
+.ambient .field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 @media (prefers-reduced-motion: reduce) {
   .ambient i { transition: none; }

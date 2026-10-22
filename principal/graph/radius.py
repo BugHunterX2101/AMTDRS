@@ -71,7 +71,7 @@ def blast_radius(
             radius.files.add(edge.path)
             radius.call_sites.append(
                 {"file": edge.path, "line": edge.line, "symbol": edge.callee_name,
-                 "confidence": edge.confidence}
+                 "confidence": edge.confidence, "to_target": edge.callee_symbol_id == target.id}
             )
             if edge.confidence == "heuristic":
                 radius.unresolved.append(

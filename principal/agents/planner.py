@@ -22,12 +22,21 @@ from principal.models.client import ModelClient
 PROMPT = (Path(__file__).parent / "prompts" / "planner.md").read_text(encoding="utf-8")
 
 
+def _call_site_line(call: dict[str, object], target) -> str:
+    """One call site. The graph has resolved an aliased import to the target, and the
+    written name alone (`make_session`) gives the model no way to see that, so it
+    reads the site as unrelated and leaves it out of the plan."""
+    line = f"- {call['file']}:{call['line']} calls `{call['symbol']}`"
+    written = str(call["symbol"]).rsplit(".", 1)[-1]
+    if call.get("to_target") and written != target.name:
+        line += f", which is the target `{target.fqn}` imported under another name"
+    return line
+
+
 def _render(goal: str, target_fqn: str, radius: BlastRadius, max_depth: int, prompt_template: str) -> str:
     files_block = "\n".join(f"- {p}" for p in sorted(radius.files)) or "(none)"
     calls = [c for c in radius.call_sites if c["confidence"] == "static"]
-    call_sites_block = "\n".join(
-        f"- {c['file']}:{c['line']} calls `{c['symbol']}`" for c in calls[:200]
-    ) or "(none found)"
+    call_sites_block = "\n".join(_call_site_line(c, radius.target) for c in calls[:200]) or "(none found)"
     unresolved_block = "\n".join(
         f"- {u['file']}:{u['line']} `{u['name']}` — {u['reason']}" for u in radius.unresolved[:50]
     ) or "(none)"

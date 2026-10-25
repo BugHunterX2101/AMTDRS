@@ -274,10 +274,9 @@ def test_a_missing_or_broken_manifest_gives_no_version(tmp_path):
     assert declared_version(tmp_path, "axios", "typescript") is None
 
 
-def test_the_planning_query_carries_only_the_package_language_and_version():
-    assert planning_query("requests", "python", "2.31.0") == (
-        "requests 2.31.0 Python library API reference, deprecations and breaking changes")
-    assert planning_query("axios", "typescript", None).startswith("axios TypeScript library")
+def test_the_planning_query_carries_only_the_package_and_version():
+    assert planning_query("requests", "2.31.0") == "requests 2.31.0 documentation"
+    assert planning_query("axios", None) == "axios documentation"
 
 
 async def test_the_planner_searches_the_most_imported_packages_with_their_versions(store, events, repo):
@@ -289,8 +288,7 @@ async def test_the_planner_searches_the_most_imported_packages_with_their_versio
     refs = await planning_references(grounder, events, store, job_id, graph_id, files)
 
     queries = [json.loads(r.content)["query"] for r in seen]
-    assert queries == [planning_query("requests", "python", "2.31.0"),
-                       planning_query("@nestjs/common", "typescript", "10.3.0")]
+    assert queries == [planning_query("requests", "2.31.0"), planning_query("@nestjs/common", "10.3.0")]
     assert len(refs) == 4
     assert [k for k, _ in _events(store, job_id)] == ["grounding.searched", "grounding.searched"]
 
@@ -411,6 +409,12 @@ def test_a_stripped_separator_leaves_no_double_space():
     # A real Tavily title, seen on a live search.
     assert safe_link("Migrating from HTTPX | Pydantic Docs", "https://d.example") == \
         "[Migrating from HTTPX Pydantic Docs](https://d.example)"
+
+
+def test_emphasis_characters_are_escaped_not_removed():
+    # A real Tavily title: the underscore is part of the package's name.
+    assert safe_link("python/typing_extensions *bold*", "https://d.example") == \
+        r"[python/typing\_extensions \*bold\*](https://d.example)"
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "data:text/html,x", "https://ok.example/a)b", "", "ftp://x"])

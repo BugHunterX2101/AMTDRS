@@ -160,7 +160,7 @@ async def planning_references(
     found: list[Reference] = []
     for package, lang in packages:
         version = declared_version(snapshot, package, lang) if snapshot is not None else None
-        found += await consult(grounder, events, job_id, stage="plan", query=planning_query(package, lang, version))
+        found += await consult(grounder, events, job_id, stage="plan", query=planning_query(package, version))
     return tuple(found)
 
 
@@ -243,10 +243,13 @@ def declared_version(snapshot: Path, package: str, lang: str) -> str | None:
     return None
 
 
-def planning_query(package: str, lang: str, version: str | None) -> str:
-    language = "Python" if lang == "python" else "TypeScript"
+def planning_query(package: str, version: str | None) -> str:
+    """Measured against the live API: this plain form finds the package's own
+    documentation (for the pinned version when there is one). A longer phrasing
+    ("... API reference, deprecations and breaking changes") returned unrelated
+    pages for `urllib3`, and a language word after a version did too."""
     pinned = f" {version}" if version else ""
-    return f"{package}{pinned} {language} library API reference, deprecations and breaking changes"
+    return f"{package}{pinned} documentation"
 
 
 def library_failure(report_json: str | None) -> str | None:

@@ -70,8 +70,11 @@ def _strength_line(strength: dict[str, Any] | None) -> str:
 def safe_link(title: str, url: str) -> str:
     """A markdown link to a web page whose title the page's author chose. The title
     loses anything that could close the link, start a new block or, on GitHub,
-    mention a user; a URL that is not plain http(s) is shown as text, never as a link."""
-    text = " ".join(re.sub(r"[\[\]()<>`*_|\\@]", "", str(title)).split())[:120] or "untitled"
+    mention a user; `*` and `_` are escaped rather than removed, so a package name
+    such as typing_extensions still reads as written. A URL that is not plain
+    http(s) is shown as text, never as a link."""
+    text = " ".join(re.sub(r"[\[\]()<>`|\\@]", "", str(title)).split())[:120]
+    text = re.sub(r"([*_])", r"\\\1", text) or "untitled"
     if not re.fullmatch(r"https?://[^\s()<>\[\]`]+", str(url)):
         return f"{text} (unlinked: not an http(s) URL)"
     return f"[{text}]({url})"

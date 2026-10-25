@@ -165,9 +165,11 @@ Every safety claim above has a fixture in `tests/fixtures/diffs/`, asserted in
 | `injected_instruction.diff` | `GATE_SCOPE` |
 | `truncated.diff` | `GATE_SYNTAX` |
 | `truncated_midhunk.diff` | `DIFF_UNPARSEABLE` |
+| `miscounted_ends_on_change.diff` | `DIFF_UNPARSEABLE` |
 | `two_blocks.txt` | `DIFF_UNPARSEABLE` |
 | `unfenced.txt` | `DIFF_UNPARSEABLE` |
 | `correct.diff` | **`ok`** |
+| `miscounted_header.diff` | **`ok`** |
 
 The last row matters as much as the others. A gate suite that only proves things
 get rejected is satisfied by a gate that rejects everything — which would be

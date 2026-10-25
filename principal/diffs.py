@@ -102,12 +102,12 @@ def parse_diff(raw_text: str) -> ParsedDiff:
     return ParsedDiff(text=text, patch=patch, touched_paths=touched)
 
 
-_HUNK_HEADER = re.compile(r"^@@\s*-(\d+)(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@")
+_HUNK_HEADER = re.compile(r"^@@\s*-(\d+)(?:,(\d+))?\s+\+\d+(?:,(\d+))?\s*@@")
 _NO_NEWLINE = "\\ No newline at end of file"
 
 
 def _normalise_hunks(text: str) -> str:
-    """Fill in hunk headers that carry no line numbers.
+    """Fill in hunk headers that carry no line numbers, or the wrong counts.
 
     Models copy the prompt's `@@ ...` placeholder, and `unidiff` then sees no
     hunks at all. The counts are redundant with the body, so derive them. A start
@@ -136,11 +136,16 @@ def _normalise_hunks(text: str) -> str:
         fixed = [b if b[:1] in {" ", "+", "-", "\\"} else " " + b for b in body]
         old = sum(1 for b in fixed if b[0] in " -")
         new = sum(1 for b in fixed if b[0] in " +")
-        # A numeric header makes a claim about the body, and a body that falls
-        # short of it is how a truncated model response looks. Keep such a header
-        # as written so `unidiff` still rejects the mismatch; only a placeholder
-        # header with no numbers at all is filled in.
-        out.append(line if m else f"@@ -{start},{old} +{start},{new} @@")
+        # Nano writes `-N,7 +N,7` whatever the body holds, and live that rejected
+        # correct edits. A reply cut off at the token cap loses its closer and
+        # never gets here, but a body that stops partway through a change is still
+        # how a cut-short hunk looks. So wrong counts are re-derived only for a
+        # hunk that ends on a context line; any other keeps its header as written,
+        # and `unidiff` rejects the mismatch.
+        counted = m is not None and (int(m.group(2) or 1), int(m.group(3) or 1)) == (old, new)
+        last = next((b for b in reversed(fixed) if b[0] != "\\"), "")
+        closed = last[:1] == " "
+        out.append(line if m and (counted or not closed) else f"@@ -{start},{old} +{start},{new} @@")
         out.extend(fixed)
     return "\n".join(out)
 

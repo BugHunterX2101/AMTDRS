@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-25**: `pytest -q` → **529 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-26**: `pytest -q` → **531 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -604,7 +604,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 529 tests, unit + integration
+make test          # or: pytest — 531 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -946,7 +946,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            529 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            531 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -992,7 +992,7 @@ AMTDRS/
 - **Not benchmarked on SWE Atlas.** The leaderboard is cited as evidence the problem is open, not as a result for Principal. `bench/tasks.json` pins **two tasks, not a suite**, and no benchmark numbers are published.
 - **Six live end-to-end runs**, one of them VERIFIED, are six data points, **not a success rate**. Three later runs on the `mini_repo` task also ended VERIFIED (arm C of the second benchmark, one through a local API server, one through the hosted URL); they are one task and not a rate either.
 - **Nebius prices are unconfirmed.** They sit behind the console login; the table above is third-party data.
-- **Web grounding has run live for planning only.** A `--dry-run` job on `psf/requests` (real sandbox baseline, real Nemotron Ultra planner) recorded two searches with Tavily `request_id`s, which its `evidence.md` lists. The hosted demo has had a Tavily key since 2026-10-25. Two full jobs on the same repository then ended `NoPR` with every task discarded: the planner's plans were sensible, but the coder models' diffs did not apply (malformed hunk headers, context lines absent from the file, replies cut off at the token cap), so no patch was verified with grounding on. One cause was Principal's: the coder saw only the first 20000 characters of a file, which hid the target function in `utils.py` (36061 characters). After that limit was raised to 120000, a third full job (`01M5T42TJKDQD4DN8ZVCXTGSSC`, Tavily requests `470ecfeb-e4a7-415b-9350-d90bf26e5b2d` and `8f6bd8f4-cf43-4133-8f0a-bffd94884028`) also ended `NoPR`, every candidate rejected at the diff-parse gate. Six Nano replies to one of its tasks, replayed outside the job, show why: two were correct edits whose `@@` line counts did not match the hunk, which the parser rejects on purpose, and four were wrong (bad indentation, context from the other call site, stray patch markers). A fourth full job, run from the hosted site (`01M5T5F2AKQHRFRR8GGFST49S1`, Tavily requests `ea3d21a6-fce5-4806-ba4c-6151549ce2fa` and `93c6a283-a3fb-435b-adef-37be9d5e7d9f`), verified one of its two tasks, the `adapters.py` call sites: a Nano candidate applied and passed the local tests. The other, the `utils.py` signature, was discarded (one candidate applied but its tests errored, and both Super repairs hit the 10000-token cap), so 1 of 2 discarded exceeded the 30% cap and the job ended `NoPR` with nothing shipped. The repair-stage search has only been tested against a mock transport, and whether the references improve a plan or a repair has not been measured: the one plan seen was not checked against an ungrounded one.
+- **Web grounding has run live for planning only.** A `--dry-run` job on `psf/requests` (real sandbox baseline, real Nemotron Ultra planner) recorded two searches with Tavily `request_id`s, which its `evidence.md` lists. The hosted demo has had a Tavily key since 2026-10-25. Two full jobs on the same repository then ended `NoPR` with every task discarded: the planner's plans were sensible, but the coder models' diffs did not apply (malformed hunk headers, context lines absent from the file, replies cut off at the token cap), so no patch was verified with grounding on. One cause was Principal's: the coder saw only the first 20000 characters of a file, which hid the target function in `utils.py` (36061 characters). After that limit was raised to 120000, a third full job (`01M5T42TJKDQD4DN8ZVCXTGSSC`, Tavily requests `470ecfeb-e4a7-415b-9350-d90bf26e5b2d` and `8f6bd8f4-cf43-4133-8f0a-bffd94884028`) also ended `NoPR`, every candidate rejected at the diff-parse gate. Six Nano replies to one of its tasks, replayed outside the job, show why: two were correct edits whose `@@` line counts did not match the hunk, which the parser then rejected (it now re-derives the counts of a hunk that ends on a context line, and both replies pass it on replay), and four were wrong (bad indentation, context from the other call site, stray patch markers). A fourth full job, run from the hosted site (`01M5T5F2AKQHRFRR8GGFST49S1`, Tavily requests `ea3d21a6-fce5-4806-ba4c-6151549ce2fa` and `93c6a283-a3fb-435b-adef-37be9d5e7d9f`), verified one of its two tasks, the `adapters.py` call sites: a Nano candidate applied and passed the local tests. The other, the `utils.py` signature, was discarded (one candidate applied but its tests errored, and both Super repairs hit the 10000-token cap), so 1 of 2 discarded exceeded the 30% cap and the job ended `NoPR` with nothing shipped. The repair-stage search has only been tested against a mock transport, and whether the references improve a plan or a repair has not been measured: the one plan seen was not checked against an ungrounded one.
 - **Gate 3 (test execution) is Python-only.** The code graph also parses TypeScript, but test execution stops at Python.
 - An **untested private symbol can still be deleted**, and **sandbox network egress is not yet disableable** through the platform SDK.
 - The **hosted demo is live** (see above), but it has been exercised with one job on one fixture, its cold start in live mode has not been timed, and the API is unauthenticated and not rate-limited.
@@ -1009,7 +1009,7 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **529 tests pass** | `python -m pytest -q` on the working tree, 2026-10-25 | Confirmed: 529 passed in 226 s |
+| **531 tests pass** | `python -m pytest -q` on the working tree, 2026-10-26 | Confirmed: 531 passed in 299 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
 | **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-25 | Confirmed: 4 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |

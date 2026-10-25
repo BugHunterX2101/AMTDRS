@@ -52,7 +52,9 @@ CASES = [
 
     # --- the parser, before anything is treated as a diff ----------------
     ("truncated_midhunk.diff", "src/auth/session.py", UNPARSEABLE,
-     "the hunk header lies about its own line count"),
+     "the body falls short of its header and stops partway through a change"),
+    ("miscounted_ends_on_change.diff", "src/auth/session.py", UNPARSEABLE,
+     "a miscounted hunk that ends on a removed line may have been cut short"),
     ("two_blocks.txt", "src/auth/session.py", UNPARSEABLE,
      "two blocks means alternatives; taking the first would be a guess"),
     ("unfenced.txt", "src/auth/session.py", UNPARSEABLE,
@@ -61,6 +63,8 @@ CASES = [
     # --- the one that must pass ------------------------------------------
     ("correct.diff", "src/auth/session.py", VerdictKind.OK,
      "the actual intended migration"),
+    ("miscounted_header.diff", "src/auth/session.py", VerdictKind.OK,
+     "live from Nano: a correct edit whose header counts are wrong, closed by context"),
 ]
 
 

@@ -1,0 +1,7 @@
+--- a/src/auth/session.py
++++ b/src/auth/session.py
+@@ -14,9 +14,9 @@ class Session:
+         return age >= self.ttl
+ 
+ 
+-def create(user, ttl=DEFAULT_TTL):

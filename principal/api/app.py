@@ -38,6 +38,22 @@ from principal.sandbox.client import SandboxClient
 logger = logging.getLogger("principal.api")
 
 
+class DashboardFiles(StaticFiles):
+    """dashboard/dist, with a cache policy. Vite puts a content hash in the name
+    of every file under assets/, so those never change and can be kept for a
+    year. The pages name those files, so they must be revalidated on every
+    visit (cheap: the ETag answers 304), or a browser that saw the site before
+    a deploy keeps loading the old stylesheet."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if Path(path).parts[:1] == ("assets",):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class AppState:
     settings: Settings
     store: Store
@@ -221,7 +237,7 @@ def create_app() -> FastAPI:
     # redirects a bare "/app" request to add the trailing slash itself).
     dist = Path(__file__).parent.parent.parent / "dashboard" / "dist"
     if dist.exists():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="dashboard")
+        app.mount("/", DashboardFiles(directory=str(dist), html=True), name="dashboard")
 
     return app
 

@@ -114,3 +114,13 @@ def test_the_fence_shares_no_characters_with_the_diff_sentinels():
     fenced = spotlight("file to change", "x = 1")
     assert "<" not in fenced and ">" not in fenced
     assert "DIFF" not in fenced and "DIFF" not in NOTICE
+
+
+@pytest.mark.parametrize("render", [_coder_prompt, _repair_prompt])
+def test_a_file_the_size_of_requests_utils_reaches_the_model_whole(render):
+    """Live: requests' utils.py is 36061 characters and its target function starts at
+    32182. A 20000-character cut hid that function, and every hunk the models wrote
+    for it failed the context check. The end of a file that size must be in the prompt."""
+    content = "x = 1\n" * 6000 + "def prepend_scheme_if_needed(url, new_scheme):\n    return url\n"
+    assert len(content) > 36061
+    assert content in blocks(render(content))["file to change" if render is _coder_prompt else "current file"]

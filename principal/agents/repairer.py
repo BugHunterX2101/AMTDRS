@@ -11,7 +11,7 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from principal.agents.coder import max_tokens_for
+from principal.agents.coder import MAX_FILE_CHARS, max_tokens_for
 from principal.agents.contracts import RepairKind
 from principal.agents.spotlight import NOTICE, references_section, spotlight
 from principal.config import Tier
@@ -35,7 +35,7 @@ def render_repair_prompt(
     # or a parametrised test id is whatever the test author wrote.
     return references_section(references) + PROMPT.format(
         target_file=target_file,
-        current_content=spotlight("current file", f"```{EXT_OF.get(lang, 'text')}\n{current_content[:20000]}\n```"),
+        current_content=spotlight("current file", f"```{EXT_OF.get(lang, 'text')}\n{current_content[:MAX_FILE_CHARS]}\n```"),
         failing_diff=spotlight("failing diff", f"```diff\n{failing_diff[:4000]}\n```"),
         failing_tests=spotlight("failing test names", ", ".join(failing_tests[:10]) or "(none named)"),
         stack_trace=spotlight("test output", f"```\n{stack_trace[:4000]}\n```"),

@@ -22,6 +22,15 @@ PROMPT = (Path(__file__).parent / "prompts" / "coder.md").read_text(encoding="ut
 
 EXT_OF = {"python": "python", "typescript": "typescript"}
 
+# How much of the target file the model is shown. It was 20000 characters, which cut
+# requests' utils.py (36061) before prepend_scheme_if_needed (at 32182): the model was
+# asked to change a function it could not see, and every hunk it wrote failed the
+# context check. Live, the whole of that file made an 11093-token coder prompt, and
+# Nano and Super both took it; the cap itself has not been sent to a model. Past it
+# the view is still cut, and that fails closed: `canonicalise`
+# matches hunks against the real file, so a hunk for unseen lines cannot apply.
+MAX_FILE_CHARS = 120_000
+
 
 def render_context_pack(
     *, instruction: str, acceptance: str, target_file: str, file_content: str,
@@ -38,7 +47,7 @@ def render_context_pack(
     # The fence around the file moves here from the template so the delimiters
     # can sit outside it: a file that itself contains a ``` line cannot close a
     # fence that is inside the spotlighted block.
-    fenced = f"```{EXT_OF.get(lang, 'text')}\n{file_content[:20000]}\n```"
+    fenced = f"```{EXT_OF.get(lang, 'text')}\n{file_content[:MAX_FILE_CHARS]}\n```"
     return PROMPT.format(
         instruction=instruction, acceptance=acceptance, target_file=target_file,
         file_content=spotlight("file to change", fenced),

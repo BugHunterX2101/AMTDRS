@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-26**: `pytest -q` → **531 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-26**: `pytest -q` → **531 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on `020e124`, the last commit that changed code, passed all 7 jobs on Ubuntu and Windows, Python 3.11 and 3.12 ([run 40223296567](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40223296567)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -51,7 +51,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 7. [What a run costs](#what-a-run-costs)
 8. [Where this sits in the market](#where-this-sits-in-the-market)
 9. [Quickstart — no credentials needed](#quickstart--no-credentials-needed) · [Full setup](#full-setup--with-nebius-token-factory)
-10. [Running it](#running-it) — API, dashboard, MCP server, benchmark, deploy
+10. [Running it](#running-it) — command line, API, dashboard, MCP server, benchmark, deploy
 11. [Repository structure](#repository-structure)
 12. [Safety](#safety) · [What is *not* claimed](#what-is-not-claimed)
 13. [Verification ledger](#verification-ledger--what-in-this-readme-was-checked-and-how)
@@ -410,9 +410,9 @@ The `alt` branch **is the cost model made visible**: a locally rejected candidat
 
 - **The dependency rule is enforced by CI, not discipline.** `import-linter` runs as `lint-imports` — **not** `python -m importlinter.cli lint`, which exits 0 without evaluating a contract. That bug was caught during development; it is exactly the kind of thing that makes a safety claim decorative.
 
-- **The event log is the product.** Every state change is an **append-only row**, streamed as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace. A laptop that sleeps for ten seconds reconnects into a live view, and because the run id lives in the URL (`/app/?job=<id>`) a finished run is **reconstructible from a link alone**.
+- **The event log is the product.** Every state change is an **append-only row**, streamed as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace. A laptop that sleeps for ten seconds reconnects into a live view, and because the run id lives in the URL (`/app/?job=<id>`) a finished run is **reconstructible from a link alone** wherever the database persists (the free hosted tier does not keep it; see [Deploying the hosted demo](#deploying-the-hosted-demo)).
 
-- **Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks. `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **10 named adversarial inputs** — including `correct.diff`, which **must pass**, because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything.
+- **Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks. `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **12 named adversarial inputs** — including `correct.diff` and `miscounted_header.diff`, which **must pass**, and `miscounted_ends_on_change.diff`, which pins the one place the diff parser repairs a model's `@@` line counts (a hunk that ends on a context line) against the place it must not (a hunk that may have been cut short) — because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything.
 
 - **Live is the default; stand-ins are labelled, never hidden.** Verification and measurement run on the real Nemotron models and the real Nebius sandbox. The in-process `FakeSandbox` (`--fake-sandbox`) is for tests only and prints `mode: DEMO — in-process FakeSandbox, results are NOT live-verified`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
 
@@ -458,7 +458,7 @@ nvidia/Nemotron-3-Ultra-550b-a55b        ok      ok     ok     schema
 
 ### Nebius Token Factory — Sandboxes are the whole design
 
-**1 · Inference.** The OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`. The model layer is the official `openai` SDK with a different `base_url` — **no custom HTTP client**. Default rate limits per Nebius's [documentation](https://docs.tokenfactory.nebius.com/ai-models-inference/rate-limits.md): **60 requests/min and 400,000 tokens/min**, scaling **+20% per 15-minute window** when usage averages **≥80%**, to a ceiling of **20× base**. The client reads `x-ratelimit-remaining-*` headers and shows headroom **live on the dashboard**.
+**1 · Inference.** The OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`. The model layer is the official `openai` SDK with a different `base_url` — **no custom HTTP client**. Rate limits per Nebius's [documentation](https://docs.tokenfactory.nebius.com/ai-models-inference/rate-limits.md): the page points to the console for the actual defaults, and its scaling example starts from **60 requests/min and 400,000 tokens/min**. A limit rises **+20% for the next 15-minute window** when usage averages **≥80%**, up to **20× base**, and falls by a factor of 1.5 when usage averages **≤50%**. The client reads `x-ratelimit-remaining-*` headers and shows headroom **live on the dashboard**.
 
 **2 · Sandboxes.** Every sandbox is its **own microVM, built to run untrusted code**, with Git-like branching: fork execution state at any checkpoint, explore in parallel, roll back instantly. The Contree SDK exposes this as **one content-addressed primitive**:
 
@@ -563,9 +563,11 @@ With no credentials you should see passes, **three warnings**, and `doctor: read
   [PASS] database                   principal.db — 12 tables, migrations applied
   [WARN] nebius_api_key             unset — Principal will run against the in-process FakeSandbox with no inference…
   [WARN] nebius_project_id          unset — Sandboxes are authorised per project…
-  [WARN] github                     GITHUB_TOKEN or PRINCIPAL_FORK_REPO unset — no pull request is opened.
+  [WARN] github                     GITHUB_TOKEN or PRINCIPAL_FORK_REPO unset — jobs run to completion and produce a verification report, but no pull request is opened.
   doctor: ready
 ```
+
+`doctor` reads a `.env` in the current directory if there is one, so to see exactly this output run it where there is none (or unset the variables and move `.env` aside).
 
 Now the static analysis, which needs only the source tree:
 
@@ -576,7 +578,7 @@ principal radius \
   --target src.auth.session.create
 ```
 
-In **under a second** (measured: 0.7 s) that prints everything a change to `create()` can reach, at **reverse-BFS depth 3**:
+In about **a second** (measured 2026-10-26: 1.1 to 1.5 s wall-clock over three runs on Windows, interpreter start included) that prints everything a change to `create()` can reach, at **reverse-BFS depth 3**:
 
 - **7 source files** and **2 test files** (14 test cases) inside the radius
 - **24 call sites**, all `static` — **14 naming `create` itself**, 8 of them in `src/`
@@ -606,7 +608,10 @@ Run the tests:
 ```bash
 make test          # or: pytest — 531 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
+make ci            # lint, then test: what CI runs on each OS
 ```
+
+`make help` lists the rest (`serve`, `dashboard`, `radius`, `demo`, `bench`, `eval`, `docker`, `fmt`, `arch`, `clean`). `make demo` runs the credential-less half against the bundled fixture on the stand-in sandbox (baseline, graph, blast radius), stops at planning because there is no inference key, and is labelled NOT LIVE.
 
 ## Full setup — with Nebius Token Factory
 
@@ -654,7 +659,7 @@ A query never contains repository source, a test name or an exception message.
 
 The results are shown to the planner and repairer in their own `UNTRUSTED WEB DATA` fence, with a notice that the repository's code and tests win where the two disagree. **No gate can read them:** an import contract forbids `principal.gates` from importing `principal.grounding`.
 
-Every search is recorded with its `request_id`, and every skip with its reason. Both appear in `evidence.md` and, when pages were shown, in the PR body.
+Grounding fails open: no key, a timeout or a 4xx is recorded as a skip with its reason and the job carries on exactly as it would have without it. Every search is recorded with its `request_id`, and every skip with its reason. Both appear in `evidence.md` and, when pages were shown, in the PR body.
 
 ### Tunables
 
@@ -670,12 +675,41 @@ Every tunable lives in [`principal/config.py`](principal/config.py) and is **rec
 | `max_discard_ratio` | **0.30** |
 | `token_budget_default` | **2,000,000** |
 | `task_timeout_s` / `sandbox_timeout_s` | **300** / **600** |
+| `strength_audit_enabled` | **on** (one extra sandbox operation per job) |
 | `strength_audit_cap` / `strength_floor` | **20** / **0.60** |
 | `tavily_max_searches` | **6** |
+
+In `.env` or the environment a tunable is its upper-case name (`MAX_REPAIRS=3`; the full list is in [`.env.example`](.env.example)). The settings below are not tunables of the search but of where the process talks to and writes:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PRINCIPAL_INFERENCE_BASE` | `https://api.tokenfactory.nebius.com/v1/` | the OpenAI-compatible endpoint |
+| `PRINCIPAL_SANDBOX_BASE` | `https://api.tokenfactory.nebius.com/sandboxes/` | the Sandboxes endpoint |
+| `PRINCIPAL_BASE_IMAGE` | `python:3.11-slim` | the image baselines are built from. A tag is a moving target; pin by digest (`python@sha256:…`) when that matters (supply-chain risk in the [threat model](docs/THREAT_MODEL.md)) |
+| `PRINCIPAL_MODEL_NANO` · `_SUPER` · `_ULTRA` | the three ids in the table above | resolved against `GET /v1/models` at boot |
+| `PRINCIPAL_PLANNER_TIER` | `ultra` | `super` or `ultra` |
+| `PRINCIPAL_FORCE_PROTOCOL` | unset | skip the boot probe and pin `schema`, `tools` or `text` |
+| `PRINCIPAL_MODEL_CACHE` | on | disk cache of model responses, keyed on the exact prompt. Turn it off for a measurement in which every call must reach the platform |
+| `PRINCIPAL_REQUIRE_LIVE` | off | refuse to start unless inference and Sandboxes both verify |
+| `PRINCIPAL_SLOW_MO_MS` | `0` | delay event emission so the fan-out is legible on video |
+| `PRINCIPAL_DB` · `_RUNS_DIR` · `_SNAPSHOTS_DIR` · `_CACHE_DIR` | `principal.db`, `runs/`, `snapshots/`, `.model_cache/` in the repository root | where state is written; the Dockerfile moves all four under `/app` |
 
 ---
 
 ## Running it
+
+### Command line
+
+| Command | What it does |
+|---|---|
+| `principal serve [--host H] [--port P] [--reload]` | the HTTP API, the dashboard and the MCP mount; `--port` defaults to `$PORT`, then 8000 |
+| `principal doctor [--json]` | checks the packages, the database, the credentials, the three model ids and sandbox access, and prints `doctor: ready` when nothing blocks a run |
+| `principal run --repo URL --commit SHA --goal TEXT [--target FQN] [--routine R] [--dry-run] [--fake-sandbox]` | one job headlessly, printing its event stream |
+| `principal radius --repo PATH_OR_URL [--commit SHA] --target FQN` | the blast radius as JSON; no job, no credentials (`--commit` defaults to `HEAD`) |
+
+- **`--dry-run`** ingests the repository, builds the baseline (in the sandbox), maps it and plans, then stops in state `Done` with stop reason `dry_run`. It writes no patch. Planning-time web grounding runs, which is how the first live Tavily searches were recorded.
+- **`--routine`** is `interface_evolution` (the default: change a signature or API and every consumer) or `relocation` (move a symbol between modules; the radius is seeded from the importers only). Two of the four SWE Atlas refactor types have a routine; decomposition and extraction are named in the registry and deliberately not implemented: decomposition is where models struggle most and its planning prompt is the hard part, and extraction needs the planner to invent a new file, which the one-file-per-task scope gate does not allow.
+- **`--fake-sandbox`** is for tests; see the quickstart.
 
 ### HTTP API
 
@@ -707,6 +741,8 @@ curl -X POST localhost:8000/jobs -H 'content-type: application/json' -d '{
   "goal": "make ttl keyword-only and update every call site"
 }'
 ```
+
+That local `repo_url` works only against a server running the in-process stand-in (no credentials). Against Nebius Sandboxes use a public git URL, as in the quickstart. The body takes `repo_url`, `commit_sha`, `goal` and `target_fqn` (all required; the target is never inferred from the goal), and optionally `token_budget`, `max_tasks`, `dry_run` and `routine` (an unrecognised routine runs as `interface_evolution` instead of aborting).
 
 ### Dashboard
 
@@ -834,9 +870,9 @@ docker run -p 8000:8000 principal
 docker run -p 8000:8000 -e NEBIUS_API_KEY=... -e NEBIUS_PROJECT_ID=... principal
 ```
 
-The Dockerfile is two-stage (a Node stage builds the dashboard, a Python stage serves it) and ships a `HEALTHCHECK`. **[amtdrs.onrender.com](https://amtdrs.onrender.com)** runs this image on Render's free tier, and it is **live**: with `PRINCIPAL_REQUIRE_LIVE=1` it refuses to start unless Token Factory inference and Nebius Sandboxes both verify, so it cannot fall back to the in-process stand-in. As of 2026-10-22, `GET /healthz` on it reports `"sandbox":"ContreeSandbox"`, `"inference_verified":true`, `"sandbox_verified":true` and `"live":true`, and a full job started through its public URL ended **VERIFIED, clean** (6 of 6 tasks, 30,644 tokens, $0.0116 of sandbox cost, injected-fault score 78%; one run, not a rate). The service is named `amtdrs` and is configured through the Render dashboard and API, not through [`render.yaml`](render.yaml), which is the Blueprint for creating a new one.
+The Dockerfile is two-stage (a Node stage builds the dashboard, a Python stage serves it) and ships a `HEALTHCHECK`. **[amtdrs.onrender.com](https://amtdrs.onrender.com)** runs this image on Render's free tier, and it is **live**: with `PRINCIPAL_REQUIRE_LIVE=1` it refuses to start unless Token Factory inference and Nebius Sandboxes both verify, so it cannot fall back to the in-process stand-in. As of 2026-10-26, `GET /healthz` on it reports `"sandbox":"ContreeSandbox"`, `"inference_verified":true`, `"sandbox_verified":true` and `"live":true`, and a full job started through its public URL ended **VERIFIED, clean** (6 of 6 tasks, 30,644 tokens, $0.0116 of sandbox cost, injected-fault score 78%; one run, not a rate). The service is named `amtdrs` and is configured through the Render dashboard and API, not through [`render.yaml`](render.yaml), which is the Blueprint for creating a new one.
 
-**What a live public demo costs.** Every job a visitor starts spends the owner's Nebius tokens and sandbox time. The API has no authentication and no per-visitor rate limit, and the request body can set its own `token_budget`, so the only cap is the 2,000,000-token default for a job that does not set one. Treat the URL as something to share deliberately. The free tier also spins down when idle: an earlier credential-less build measured a **33 s** cold start, and the live build, which now runs the capability probe at startup, has not been re-timed. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+**What a live public demo costs.** Every job a visitor starts spends the owner's Nebius tokens and sandbox time. The API has no authentication and no per-visitor rate limit, and the request body can set its own `token_budget`, so the only cap is the 2,000,000-token default for a job that does not set one. Treat the URL as something to share deliberately. **The hosted instance does not keep its history.** Checked 2026-10-26: after that day's redeploys `GET /jobs/01M5T5F2AKQHRFRR8GGFST49S1`, a job recorded in this README, returned `404 job not found`. The free tier's disk is not persistent, which is the likely cause; I did not confirm that with Render. So the hosted job ids quoted here cannot be reopened at `/app/?job=<id>` and their figures are as read when each job finished. The landing page's replay is a recorded run bundled into the build and is unaffected, and a self-hosted instance with a persistent `PRINCIPAL_DB` keeps every run. The free tier also spins down when idle: an earlier credential-less build measured a **33 s** cold start, and the live build, which now runs the capability probe at startup, has not been re-timed. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ---
 
@@ -848,7 +884,7 @@ AMTDRS/
 │   ├── cli.py                        serve | doctor | run | radius
 │   ├── config.py                     every tunable, recorded into each job's metadata
 │   ├── errors.py                     error taxonomy: retryable? the system's fault or the platform's?
-│   ├── diffs.py                      sentinel extraction + unified-diff parsing (no model here)
+│   ├── diffs.py                      sentinel extraction + unified-diff parsing; re-derives wrong @@ counts (no model here)
 │   ├── outcome.py                    VERIFIED / UNVERIFIED / FAILED / ERROR — a pure function
 │   │
 │   ├── db/
@@ -877,6 +913,9 @@ AMTDRS/
 │   │   ├── client.py · budget.py     the only place a token is spent; reserve-and-refuse
 │   │   └── cache.py                  content-addressed disk cache
 │   │
+│   ├── grounding/                    web grounding: two deterministic triggers, fails open, never imported by gates/
+│   │   └── tavily.py
+│   │
 │   ├── agents/                       one pure function per role, no shared memory
 │   │   ├── contracts.py              pydantic models for every agent's input/output
 │   │   ├── planner.py                Ultra — goal → ordered task list
@@ -884,6 +923,7 @@ AMTDRS/
 │   │   ├── repairer.py               Super — failing diff + stack trace → revised diff
 │   │   ├── characteriser.py          writes frozen tests where the repo has none
 │   │   ├── reporter.py               artifacts → PR title / body / risk list
+│   │   ├── spotlight.py              fences repository and web text as untrusted data inside a prompt
 │   │   └── prompts/*.md
 │   │
 │   ├── gates/                        deterministic, total, never imports models/ or agents/
@@ -953,7 +993,7 @@ AMTDRS/
 │   │   │                             dynamic dispatch (2 unresolved edges), an uncovered private symbol
 │   │   ├── weak_repo/                tests pass but are weak — a green change can still be unverified
 │   │   ├── weak_repo_oracle/         an independent oracle for the weak repo
-│   │   └── diffs/                    the adversarial corpus — 10 named inputs, exact verdicts
+│   │   └── diffs/                    the adversarial corpus — 12 named inputs, exact verdicts
 │   ├── unit/                         gates, radius, ordering, outcome, evidence, MCP, bench, sandbox
 │   └── integration/                  real baseline → coverage → attempt pipeline against FakeSandbox
 │
@@ -964,11 +1004,13 @@ AMTDRS/
 │   ├── SUBMISSION.md · DEMO_VIDEO.md Devpost text + checklist · 3-minute shot list
 │   └── DEPLOY.md                     Render deployment steps
 │
-├── .github/workflows/ci.yml          lint + contracts · tests (2 OS × 2 Python) · compliance · image build
+├── .github/workflows/ci.yml          lint + contracts + a swallowed-exception check on gates/ and publish/ · tests (2 OS × 2 Python) · submission compliance · image build
+├── .env.example                      every setting, credentials blank
+├── .dockerignore
 ├── CLAUDE.md                         rules for AI coding agents working in this repo
 ├── Dockerfile                        two-stage build; serves with zero credentials; HEALTHCHECK
 ├── render.yaml                       Render Blueprint for a new live service (amtdrs.onrender.com is not linked to it)
-├── Makefile                          install · doctor · test · lint · bench · demo · docker
+├── Makefile                          install · dev · doctor · test · lint · fmt · arch · ci · serve · dashboard · bench · eval · radius · demo · docker · clean
 ├── pyproject.toml                    deps, ruff config, import-linter contracts
 ├── LICENSE                           Apache-2.0, verbatim, detectable by GitHub
 └── NOTICE                            third-party licenses, trademark attribution
@@ -995,7 +1037,7 @@ AMTDRS/
 - **Web grounding has run live for planning only.** A `--dry-run` job on `psf/requests` (real sandbox baseline, real Nemotron Ultra planner) recorded two searches with Tavily `request_id`s, which its `evidence.md` lists. The hosted demo has had a Tavily key since 2026-10-25. Two full jobs on the same repository then ended `NoPR` with every task discarded: the planner's plans were sensible, but the coder models' diffs did not apply (malformed hunk headers, context lines absent from the file, replies cut off at the token cap), so no patch was verified with grounding on. One cause was Principal's: the coder saw only the first 20000 characters of a file, which hid the target function in `utils.py` (36061 characters). After that limit was raised to 120000, a third full job (`01M5T42TJKDQD4DN8ZVCXTGSSC`, Tavily requests `470ecfeb-e4a7-415b-9350-d90bf26e5b2d` and `8f6bd8f4-cf43-4133-8f0a-bffd94884028`) also ended `NoPR`, every candidate rejected at the diff-parse gate. Six Nano replies to one of its tasks, replayed outside the job, show why: two were correct edits whose `@@` line counts did not match the hunk, which the parser then rejected (it now re-derives the counts of a hunk that ends on a context line, and both replies pass it on replay), and four were wrong (bad indentation, context from the other call site, stray patch markers). A fourth full job, run from the hosted site (`01M5T5F2AKQHRFRR8GGFST49S1`, Tavily requests `ea3d21a6-fce5-4806-ba4c-6151549ce2fa` and `93c6a283-a3fb-435b-adef-37be9d5e7d9f`), verified one of its two tasks, the `adapters.py` call sites: a Nano candidate applied and passed the local tests. The other, the `utils.py` signature, was discarded (one candidate applied but its tests errored, and both Super repairs hit the 10000-token cap), so 1 of 2 discarded exceeded the 30% cap and the job ended `NoPR` with nothing shipped. The repair-stage search has only been tested against a mock transport, and whether the references improve a plan or a repair has not been measured: the one plan seen was not checked against an ungrounded one.
 - **Gate 3 (test execution) is Python-only.** The code graph also parses TypeScript, but test execution stops at Python.
 - An **untested private symbol can still be deleted**, and **sandbox network egress is not yet disableable** through the platform SDK.
-- The **hosted demo is live** (see above), but it has been exercised with one job on one fixture, its cold start in live mode has not been timed, and the API is unauthenticated and not rate-limited.
+- The **hosted demo is live** (see above), but it has been exercised with one job on one fixture, its cold start in live mode has not been timed, its job history is lost on redeploy, and the API is unauthenticated and not rate-limited.
 
 ## Project provenance
 
@@ -1005,41 +1047,47 @@ Principal was **created during the hackathon submission period** (26 August – 
 
 ## Verification ledger — what in this README was checked, and how
 
-Checked **2026-10-21** against the repository at the commit that introduced this file.
+Re-checked **2026-10-26**: the commands were re-run and the sources re-fetched in one pass, and a row says so when a figure changed or could not be reproduced. A row that records a one-time measurement keeps its own date.
 
 | Claim | How it was checked | Result |
 |---|---|---|
 | **531 tests pass** | `python -m pytest -q` on the working tree, 2026-10-26 | Confirmed: 531 passed in 299 s |
-| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
-| **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-25 | Confirmed: 4 kept, 0 broken |
-| `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |
-| `principal doctor` output | ran it with credentials unset | Confirmed: matches the block above, modulo Python version |
-| **Blast radius: 7 files, 2 test files, 14 tests, 24 call sites, 14 naming `create`, 8 in `src/`, 2 unresolved** | `principal radius …` and counted the JSON fields | Confirmed exactly; ran in 0.7 s |
-| **Baseline: 14 tests green; graph 16 files / 30 symbols / 41 call edges; abort at Planning with 401** | `principal run … --fake-sandbox` with credentials unset | Confirmed exactly; outcome ERROR |
-| **11 API endpoints; status mapping 404 / 422 / 429 / 400** | read `routes.py` and `app.py` | Confirmed |
-| **5 MCP tools** | read `mcp_code_graph/server.py` | Confirmed |
-| **Candidate temperatures 0.0 / 0.4 / 0.8**; all defaults in the tunables table | read `scheduler.py` and `config.py` | Confirmed |
+| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `020e124` | Confirmed: all 7 jobs succeeded ([run 40223296567](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40223296567)) |
+| **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-26 | Confirmed: 4 kept, 0 broken |
+| `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes`, 2026-10-26 | Confirmed: all checks passed |
+| `principal doctor` output | ran it with the variables unset from a directory with no `.env`, 2026-10-26 | Confirmed: 12 tables, three warnings, `doctor: ready`. The `github` line is now the full text; with a `.env` present the output differs, which is why the note above says so |
+| **Blast radius: 7 files, 2 test files, 14 tests, 24 call sites, 14 naming `create`, 8 in `src/`, 2 unresolved** | `principal radius …` and counted the JSON fields, 2026-10-26 | Confirmed exactly. The run took 1.1 to 1.5 s wall-clock over three runs; the earlier 0.7 s was not reproduced and is no longer claimed |
+| **Baseline: 14 tests green; graph 16 files / 30 symbols / 41 call edges; abort at Planning with 401** | `principal run … --fake-sandbox` with credentials unset, 2026-10-26 (labelled NOT LIVE) | Confirmed exactly: 14 of 14 tests, 16 / 30 / 41. The abort is now `CONFIG_MISSING: NEBIUS_API_KEY is not set` (an earlier version of this row said 401); outcome ERROR |
+| **11 API endpoints; status mapping 404 / 422 / 429 / 400** | read `routes.py` and `app.py`, 2026-10-26 | Confirmed: 11 routes, plus the `/mcp` mount |
+| **5 MCP tools, the resources and 2 prompts in the tables** | read `mcp_code_graph/server.py`, 2026-10-26 | Confirmed; the job-evidence resource is registered only when a job store is attached |
+| **Candidate temperatures 0.0 / 0.4 / 0.8**; all defaults in the tunables table | read `scheduler.py` and `config.py`, 2026-10-26 | Confirmed (repairs run at 0.2) |
 | **Run 1: Done → UNVERIFIED, 0 of 1 faults, 17,822 tokens, $0.0037, real operation ids** | rendered the stored evidence bundle and inspected the trace | Confirmed, but that job's provenance reads "unknown" |
 | **Run 2 (cache off): UNVERIFIED, no change produced, ledger 26,711 charged = 26,711 attributed** | read `principal.db` read-only: `job.tokens_spent` against the sum of `model.call.billed_tokens`, plus the per-role models | Confirmed for one run; the outcome differs from run 1 on the same goal, so neither is a rate |
 | **Run 3 (mini_repo, cache off): UNVERIFIED, 4 of 6 tasks settled, 2 discarded, ledger 58,409 = 58,409** | same read-only ledger query; the task states and attempt verdicts from `principal.db` | Confirmed for one run; not VERIFIED, and the truncation explanation for the diff failures is a hypothesis, not a finding |
 | **Run 4 (mini_repo, after the parser fix): Done → UNVERIFIED, 5 of 7 verified, `session.py` discarded, 8 of 10 faults, ledger 69,748 = 69,748** | same read-only query of `principal.db`, job `01M5FQ9Y8TMEPXYE86H408HMSS` | Confirmed for one run; not VERIFIED because the definition itself was not changed |
 | **Run 5 (fixture `3d11f55`, dependency-aware verification): NoPR → UNVERIFIED, 4 of 6 verified, ledger 56,261 = 56,261 over 20 calls** | same read-only query, job `01M5FTFZPQ3VS87HF00F0RN2K5` | Confirmed for one run |
 | **Run 6: Done → VERIFIED, 6 of 6 verified, signature now `user, *, ttl=DEFAULT_TTL`, 9 of 9 call sites, 7 of 9 faults, ledger 19,855 = 19,855 over 10 calls** | same read-only query, job `01M5FTZVBPDH18S99QN4BW9ANB`; read the stored winning diffs under `runs/` | Confirmed for one run, after the fixture's tests were changed |
+| **Runs 4 to 6 and the third `psf/requests` job: tokens charged equal tokens attributed; task counts as stated** | re-ran the read-only ledger query on `principal.db`, 2026-10-26 | Confirmed: 69,748 / 56,261 / 19,855 / 171,151, with 5 of 7, 4 of 6, 6 of 6 and 0 of 2 tasks verified. Runs 1 to 3 were not re-queried in this pass |
 | **Blast radius unchanged by the fixture change** | re-ran `principal radius` on the changed fixture | Confirmed: same 7 / 2 / 14 / 24 / 14 / 8 / 2 |
-| **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard | Confirmed: matches 2026-10-21 |
-| **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card | Confirmed (the card is inconsistent on experts per token, so that is not claimed) |
-| **Rate limits: 60 RPM, 400k TPM, +20% / 15 min at ≥80%, 20× ceiling** | Nebius rate-limit docs (via search of the docs) | Confirmed |
-| **Sandboxes: 50 simultaneous ops, 180-day retention** | Nebius Sandboxes limits page | Confirmed; retention wording corrected: *untagged and unreferenced* images may be deleted |
-| **Stack Overflow: 84% using or planning to use; 29% trust** | Stack Overflow's own article | Confirmed |
+| **SWE Atlas: 70 tasks, 10 repos, 6 languages, 4 types; the leaderboard rows quoted** | fetched the live leaderboard, 2026-10-26 | Confirmed: counts, ranks 1 to 5 and rank 17 unchanged from 2026-10-21 (17 rows in all) |
+| **Nemotron 3 Nano: 52 layers (23 / 23 / 6), 3.5B of 30B active** | NVIDIA's model card, re-fetched 2026-10-26; the [paper](https://arxiv.org/abs/2512.20856) names the Nano / Super / Ultra family | Confirmed (the card's specifications list 33.0B parameters against the 30B description, and it is inconsistent on experts per token, so neither is claimed) |
+| **Rate limits: scaling example from 60 RPM / 400k TPM, +20% per 15 min at ≥80%, ×1/1.5 at ≤50%, 20× ceiling** | Nebius rate-limit page, fetched 2026-10-26 | Corrected: the page gives 60 / 400k as an example baseline and sends you to the console for real defaults, so this README no longer calls them defaults; the scale-down rule was added |
+| **Sandboxes: 50 simultaneous ops, 180-day retention** | Nebius Sandboxes limits page, fetched 2026-10-26 | Confirmed ("50 during Beta"); *untagged and unreferenced* images may be deleted after 180 days |
+| **Stack Overflow: 84% using or planning to use; 29% trust** | Stack Overflow's own article, re-fetched 2026-10-26 | Confirmed |
 | **Stack Overflow: 66% "almost right, but not quite"** | official survey page, via search | Confirmed; an earlier draft said **45%**, which was actually the *debugging* figure, and was corrected |
 | **DORA: AI is "an amplifier"** | quoted from the DORA page | Confirmed (the throughput/instability detail was *not* confirmed from the primary report, so it is not claimed) |
 | **Deloitte: 21–40% of IT spend** | Deloitte's own [technical-debt page](https://www.deloitte.com/us/en/insights/topics/technology-management/technical-debt-impact.html): "technical debt accounts for 21% to 40% of an organization's IT spending," citing its 2026 study | Confirmed; Deloitte flags it as an estimate. An earlier draft also credited McKinsey with "the same band"; McKinsey's 20–40% measures a share of *technology estate value*, so that was **removed** |
-| **Moderne: $30M Series B, Acrew Capital, 11 Feb 2025** | TechCrunch article | Confirmed |
+| **Moderne: $30M Series B, Acrew Capital, 11 Feb 2025** | TechCrunch article, re-fetched 2026-10-26 | Confirmed |
+| **Hackathon track and period (26 August – 30 October 2026)** | third-party listings, 2026-10-26; the Devpost page returned 403 to my fetch tool | Consistent across listings, not read from Devpost; the listings give the deadline as 30 October 10:00 PDT |
+| **Repository history begins 19 September 2026** | `git log --reverse` | Confirmed: first commit 2026-09-19 |
+| **Every URL in this README resolves; pinned commits and the fixture branch exist** | `curl` of all 26 URLs and the GitHub API, 2026-10-26 | 20 returned 200; the arXiv, OpenRewrite, DORA and Scale pages timed out in `curl` and loaded in a separate fetch; `127.0.0.1` and the inference base URL are not pages. `fixture/mini-repo` is at `3d11f55`, the weak repository has `4ec27e0` and `3fd067a`, and GitHub detects the license as Apache-2.0 |
+| **File tree in *Repository structure* matches the repository** | compared with `git ls-files` | Corrected: `grounding/`, `agents/spotlight.py`, `.env.example`, `.dockerignore` and the full list of `make` targets were missing, and the corpus is 12 inputs, not 10 |
+| **Hosted demo keeps its job history** | `GET /jobs/01M5T5F2AKQHRFRR8GGFST49S1` on the hosted URL, 2026-10-26 | **Not true**: `404 job not found` after the day's redeploys. Now stated in the README |
 | **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | Confirmed within noise: *no change*, not an improvement. Measured on the previous design; not repeated after the 2026-10-22 redesign |
-| **Hosted demo reports `ContreeSandbox`, inference and sandbox verified, `live:true`** | `curl` of the live `/healthz`, 2026-10-22, after the service was given its credentials | Confirmed |
+| **Hosted demo reports `ContreeSandbox`, inference and sandbox verified, `live:true`** | `curl` of the live `/healthz`, 2026-10-22 and again 2026-10-26 (after the `020e124` deploy) | Confirmed both times |
 | **A full job on the hosted URL ends VERIFIED, clean (6 of 6 tasks)** | `POST /jobs` to `amtdrs.onrender.com`, then its `evidence.md`, which reads "Executed on: LIVE" | Confirmed for one run; not a rate |
 | ~~Hosted demo reports FakeSandbox, `live:false`; 33 s cold start~~ | `curl` of the live `/healthz` and `/` before the service had credentials | Superseded: true of the earlier build only. The cold start has not been re-timed in live mode |
-| **Model prices** | Nebius's page is login-gated | Caveat: **third-party only**. Ultra $1/$3 from two listings; Nano $0.06/$0.24 (an earlier draft said $0.05/$0.20 with no source I could find); Super is a reseller price |
+| **Model prices** | Nebius's page is login-gated | Caveat: **third-party only**. Ultra $1/$3 from two listings; Nano $0.06/$0.24 (an earlier draft said $0.05/$0.20 with no source I could find; re-checked 2026-10-26, and an Artificial Analysis provider page lists Nebius at exactly that rate); Super is a reseller price, and Super and Ultra were not re-checked |
 | "80% on SWE-Bench Verified" | no source found | **Removed** from this README |
 | $85–110/hour engineering cost | carried from the design docs | Caveat: an assumption, labelled as one |
 

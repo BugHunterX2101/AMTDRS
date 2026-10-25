@@ -82,6 +82,11 @@ from the Blueprint (the API reports no Blueprint for it), so `render.yaml` does
 not configure it: its environment variables were set on the service directly.
 The Blueprint is the way to create a new service of this kind.
 
+The service keeps `principal.db` on the container's own disk, which the free
+tier does not persist. Job ids from before a redeploy returned 404 afterwards
+(observed 2026-10-26); the cause has not been confirmed with Render. Treat the
+hosted history as temporary and keep a job's id and report if you need them.
+
 ## Redeploying after a push
 
 The `amtdrs` service has auto-deploy on for `main`, so every push to `main` on

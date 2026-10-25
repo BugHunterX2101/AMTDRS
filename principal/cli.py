@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--target", default=None, help="fully qualified name of the symbol to change")
     p_run.add_argument("--routine", default="interface_evolution", choices=["interface_evolution", "relocation"],
                        help="which routine plans this job (default: interface_evolution)")
-    p_run.add_argument("--dry-run", action="store_true", help="stop after planning; touches no sandbox")
+    p_run.add_argument("--dry-run", action="store_true", help="stop after planning; still builds the sandbox baseline, writes no patch")
     p_run.add_argument("--fake-sandbox", action="store_true",
                        help="force the local in-process sandbox even if credentials are present")
 

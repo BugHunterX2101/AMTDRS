@@ -53,6 +53,8 @@ violation is a failed CI job rather than a code-review miss.
 | Runaway spend | A retry loop consuming the credit budget | Budget reserved before every call; hard caps on attempts, repairs and forks | `orchestrator/budget.py` | **Low** |
 | Supply chain via base image | A tampered base image | Pinned by tag, not digest | `config.py::principal_base_image` | **Medium** — see below |
 | Swallowed exception in a gate | `except Exception: pass` turning a failure into a pass | Gates never raise; CI greps `gates/` and `publish/` for bare and swallowed excepts | `.github/workflows/ci.yml` | **Low** |
+| Prompt injection from a web page | A documentation page returned by a Tavily search telling the model what to write | Web text is fenced separately from repository text, with a notice that the repository wins where they disagree; `principal.gates` may not import `principal.grounding` (import contract) | `agents/spotlight.py`, `grounding/tavily.py`, `pyproject.toml` | **Low** — same bound as repository text: a wasted candidate, never a passed gate |
+| Repository data leaving in a search query | A query carrying source, a test name or an exception message | Queries are built from a package name, a declared version, an exception class and a library module path only, never from free text the repository wrote | `grounding/tavily.py::planning_query`, `library_failure` | **Low** — the package names a repository imports are disclosed to the search provider |
 
 ## Fencing repository text in prompts
 
@@ -76,6 +78,13 @@ where planted text sits in each prompt and that a forged closing line does not e
 a block. It does not show that a model obeys the notice, and no injection success
 rate has been measured. The gates above remain the defence: an injected
 instruction can waste a candidate, and it cannot pass a gate.
+
+Web search results (`principal/grounding`, used only when `TAVILY_API_KEY` is
+set) get a second fence, `UNTRUSTED WEB DATA`, with their own notice: the page
+author is a different party from the repository author, and where the two
+disagree the model is told the repository's code and tests win. The same bound
+holds, by the same argument, and is enforced by an import contract rather than by
+convention: no gate can import the grounding package.
 
 ## The residual risks, stated plainly
 

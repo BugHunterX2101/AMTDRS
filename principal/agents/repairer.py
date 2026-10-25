@@ -8,14 +8,16 @@ site, so it cannot leak in by accident.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from principal.agents.coder import max_tokens_for
 from principal.agents.contracts import RepairKind
-from principal.agents.spotlight import NOTICE, spotlight
+from principal.agents.spotlight import NOTICE, references_section, spotlight
 from principal.config import Tier
 from principal.diffs import ParsedDiff, canonicalise, parse_diff
 from principal.graph.languages import lang_of
+from principal.grounding.tavily import Reference
 from principal.models.client import Completion, ModelClient
 
 PROMPT = (Path(__file__).parent / "prompts" / "repairer.md").read_text(encoding="utf-8")
@@ -25,13 +27,13 @@ KIND_LINE = re.compile(r"KIND:\s*(\w+)", re.IGNORECASE)
 
 def render_repair_prompt(
     *, target_file: str, current_content: str, failing_diff: str, failing_tests: list[str],
-    stack_trace: str,
+    stack_trace: str, references: Sequence[Reference] = (),
 ) -> str:
     lang = lang_of(target_file) or "python"
     # Fences are built here, inside the delimiters, for the reason given in coder.py.
     # The stack trace and test names are repository text too: an assertion message
     # or a parametrised test id is whatever the test author wrote.
-    return PROMPT.format(
+    return references_section(references) + PROMPT.format(
         target_file=target_file,
         current_content=spotlight("current file", f"```{EXT_OF.get(lang, 'text')}\n{current_content[:20000]}\n```"),
         failing_diff=spotlight("failing diff", f"```diff\n{failing_diff[:4000]}\n```"),

@@ -10,13 +10,15 @@ expressed as validation.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 from principal.agents.contracts import Plan
-from principal.agents.spotlight import NOTICE, spotlight
+from principal.agents.spotlight import NOTICE, references_section, spotlight
 from principal.config import Tier
 from principal.errors import PlanInvalid
 from principal.graph.radius import BlastRadius
+from principal.grounding.tavily import Reference
 from principal.models.client import ModelClient
 
 PROMPT = (Path(__file__).parent / "prompts" / "planner.md").read_text(encoding="utf-8")
@@ -94,8 +96,9 @@ def validate_plan(plan: Plan, radius_files: set[str], max_tasks: int) -> None:
 async def plan(
     client: ModelClient, *, job_id: str, goal: str, target_fqn: str, radius: BlastRadius,
     max_depth: int, max_tasks: int, tier: Tier = Tier.ULTRA, prompt_template: str | None = None,
+    references: Sequence[Reference] = (),
 ) -> Plan:
-    prompt = _render(goal, target_fqn, radius, max_depth, prompt_template or PROMPT)
+    prompt = references_section(references) + _render(goal, target_fqn, radius, max_depth, prompt_template or PROMPT)
     messages = [{"role": "user", "content": prompt}]
 
     last_error: str | None = None

@@ -3,6 +3,7 @@ is never blocked on prose it could not get."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from principal.db.store import Task
@@ -64,6 +65,34 @@ def _strength_line(strength: dict[str, Any] | None) -> str:
         return (f"{detected} of {detected + survived} injected faults in the changed lines were detected"
                 f" ({strength.get('score', 0):.0%}, floor {strength.get('floor', 0):.0%})")
     return f"not measured — {strength.get('reason') or status}"
+
+
+def safe_link(title: str, url: str) -> str:
+    """A markdown link to a web page whose title the page's author chose. The title
+    loses anything that could close the link, start a new block or, on GitHub,
+    mention a user; a URL that is not plain http(s) is shown as text, never as a link."""
+    text = " ".join(re.sub(r"[\[\]()<>`*_|\\@]", "", str(title)).split())[:120] or "untitled"
+    if not re.fullmatch(r"https?://[^\s()<>\[\]`]+", str(url)):
+        return f"{text} (unlinked: not an http(s) URL)"
+    return f"[{text}]({url})"
+
+
+def render_references_block(grounding: dict[str, Any] | None) -> str:
+    """The web pages the planner and repairer were shown, or "" when there were none.
+    Recorded, not generated, and labelled as context: no gate read any of them."""
+    searches = [s for s in (grounding or {}).get("searches") or [] if s.get("results")]
+    if not searches:
+        return ""
+    lines = ["**External references consulted** (Tavily web search; shown to the models as context, "
+             "never read by a gate)", ""]
+    seen: set[str] = set()
+    for s in searches:
+        for r in s["results"]:
+            if r["url"] in seen:
+                continue
+            seen.add(r["url"])
+            lines.append(f"- {safe_link(r['title'], r['url'])} — {s['stage']}")
+    return "\n".join(lines)
 
 
 def render_fallback_body(

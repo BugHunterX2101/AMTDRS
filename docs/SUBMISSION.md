@@ -176,7 +176,7 @@ Every requirement from [the official rules](https://nebiusglobalaihackathon.devp
 | Award | Eligible | Note |
 |---|---|---|
 | Most Valuable Feedback ($100 + swag, ×10) | ✅ | Complete the feedback section on the form; [`FEEDBACK.md`](FEEDBACK.md) is deliberately specific and reproducible |
-| Best Use of Tavily ($3,000) | ❌ | Requires a functional runtime call to the Tavily API. Principal makes none — claiming it would be false. |
+| Best Use of Tavily ($3,000) | ❌ (search live-verified; no job run yet) | Requires a functional runtime call to the Tavily API. Principal now makes one (`principal/grounding/tavily.py`: planner and repairer grounding, recorded as `grounding.searched` with Tavily's `request_id`). On 2026-10-25 the planning query path made a real search through `consult` (request_id `566e2914-4c97-4a4f-a533-8d8706438cf3`, 3 results, a repeat served from the job cache), but outside a full job, so no `evidence.md` shows one yet. Change this row only after a live run's `evidence.md` shows one. Only one bonus award is allowed, so choose between this and Most Valuable Feedback. |
 
 > A project is eligible for **one Overall award OR one Track award, plus one Bonus award.**
 

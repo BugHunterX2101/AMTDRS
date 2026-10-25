@@ -122,6 +122,12 @@ source_modules = ["principal.gates"]
 forbidden_modules = ["principal.models", "principal.agents"]
 
 [[tool.importlinter.contracts]]
+name = "No web text in the accept path"
+type = "forbidden"
+source_modules = ["principal.gates"]
+forbidden_modules = ["principal.grounding"]
+
+[[tool.importlinter.contracts]]
 name = "Layered architecture"
 type = "layers"
 layers = [
@@ -133,7 +139,7 @@ layers = [
     # cycle in which what a diff may touch is decided partly by the thing being
     # checked. A routine names its prompt by path and never imports an agent.
     "principal.routines",
-    "principal.sandbox | principal.models | principal.graph",
+    "principal.sandbox | principal.models | principal.graph | principal.grounding",
     "principal.db",
     "principal.config",
 ]

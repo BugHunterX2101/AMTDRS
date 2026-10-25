@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     contree_token: str = ""
     github_token: str = ""
     principal_fork_repo: str = ""
+    # Web grounding (`principal/grounding`). Empty means no search is made and the
+    # job records why; nothing else about the job changes.
+    tavily_api_key: str = ""
 
     # Endpoints and models
     principal_inference_base: str = "https://api.tokenfactory.nebius.com/v1/"
@@ -91,6 +94,10 @@ class Settings(BaseSettings):
     strength_audit_enabled: bool = True
     strength_audit_cap: int = 20
     strength_floor: float = 0.60
+
+    # At most this many Tavily searches per job, cache hits not counted. Each is
+    # one credit at basic depth.
+    tavily_max_searches: int = 6
 
     # Benchmark only. Arm A must run in a sandbox like every other arm — else
     # the comparison is between execution environments rather than between
@@ -157,6 +164,7 @@ class Settings(BaseSettings):
             "strength_audit_enabled": self.strength_audit_enabled,
             "strength_audit_cap": self.strength_audit_cap,
             "strength_floor": self.strength_floor,
+            "tavily_max_searches": self.tavily_max_searches,
             "planner_tier": self.principal_planner_tier.value,
             "models": {
                 "nano": self.principal_model_nano,

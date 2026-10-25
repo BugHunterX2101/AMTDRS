@@ -45,9 +45,11 @@ from principal.graph.embed import ConventionIndex
 from principal.graph.languages import lang_of
 from principal.graph.parse import CallSite, parse_source
 from principal.graph.radius import BlastRadius, find_target
+from principal.grounding.tavily import Grounder, planning_references
 from principal.models.client import ModelClient
 from principal.orchestrator.budget import exceeds_discard_cap
 from principal.orchestrator.cleanup import plan_cleanup
+from principal.orchestrator.evidence import grounding_record
 from principal.orchestrator.ordering import order_waves
 from principal.orchestrator.scheduler import TaskContext, WaveRunner
 from principal.orchestrator.signals import (
@@ -59,7 +61,7 @@ from principal.orchestrator.signals import (
 )
 from principal.outcome import Outcome, classify
 from principal.publish.github import open_pr
-from principal.publish.prbody import render_fallback_body, render_verification_block
+from principal.publish.prbody import render_fallback_body, render_references_block, render_verification_block
 from principal.routines.registry import routine_for
 from principal.routines.relocation import moved_symbols
 from principal.sandbox.baseline import build_baseline, clone_source, ensure_snapshot
@@ -86,9 +88,11 @@ async def run_job(
         graph_id = await _map(job_id, store, events, settings)
         target = _resolve_target(store, job_id, graph_id)
         await _characterise(job_id, store, events, sandbox, models, graph_id, target, settings)
-        radius = await _plan(job_id, store, events, models, graph_id, target, settings)
-        await _execute(job_id, store, events, sandbox, models, graph_id, radius, settings)
-        await _cleanup(job_id, store, events, sandbox, models, graph_id, settings)
+        # One per job, so the search cap and the query cache span planning and repairs.
+        grounder = Grounder.from_settings(settings)
+        radius = await _plan(job_id, store, events, models, graph_id, target, settings, grounder=grounder)
+        await _execute(job_id, store, events, sandbox, models, graph_id, radius, settings, grounder=grounder)
+        await _cleanup(job_id, store, events, sandbox, models, graph_id, settings, grounder=grounder)
         await _integrate_and_publish(job_id, store, events, sandbox, models, graph_id, radius, settings)
     except _Stopped:
         pass
@@ -120,7 +124,8 @@ async def run_plan_only(
         await _ingest_and_baseline(job_id, store, events, sandbox, settings)
         graph_id = await _map(job_id, store, events, settings)
         target = _resolve_target(store, job_id, graph_id)
-        await _plan(job_id, store, events, models, graph_id, target, settings)
+        await _plan(job_id, store, events, models, graph_id, target, settings,
+                    grounder=Grounder.from_settings(settings))
     except PrincipalError as exc:
         with events.transaction(job_id, "job.state", {"state": "Aborted", "reason": exc.message,
                                                         "code": exc.code.value}):
@@ -321,7 +326,7 @@ def _register_characterisation(
 
 
 async def _plan(job_id: str, store: Store, events: EventLog, models: ModelClient, graph_id: str,
-                 target: SymbolRow, settings: Settings) -> BlastRadius:
+                 target: SymbolRow, settings: Settings, grounder: Grounder | None = None) -> BlastRadius:
     job = store.get_job(job_id)
     assert job is not None
     if not job.target_fqn:
@@ -338,10 +343,12 @@ async def _plan(job_id: str, store: Store, events: EventLog, models: ModelClient
     with events.transaction(job_id, "job.state", {"state": "Planning"}):
         store.update_job(job_id, state="Planning")
 
+    references = await planning_references(grounder, events, store, job_id, graph_id, set(radius.files))
     plan_result = await run_planner(
         models, job_id=job_id, goal=job.goal, target_fqn=job.target_fqn, radius=radius,
         max_depth=settings.radius_max_depth, max_tasks=settings.max_tasks,
         tier=settings.principal_planner_tier, prompt_template=routine.prompt_text,
+        references=references,
     )
 
     for t in plan_result.tasks:
@@ -360,7 +367,8 @@ async def _plan(job_id: str, store: Store, events: EventLog, models: ModelClient
 
 
 async def _execute(job_id: str, store: Store, events: EventLog, sandbox: SandboxClient,
-                    models: ModelClient, graph_id: str, radius: BlastRadius, settings: Settings) -> None:
+                    models: ModelClient, graph_id: str, radius: BlastRadius, settings: Settings,
+                    grounder: Grounder | None = None) -> None:
     job = store.get_job(job_id)
     assert job is not None
     with events.transaction(job_id, "job.state", {"state": "Executing"}):
@@ -379,7 +387,7 @@ async def _execute(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
         convention_index=convention_index, task_timeout_s=settings.task_timeout_s,
         sandbox_timeout_s=settings.sandbox_timeout_s, max_repairs=settings.max_repairs,
         runs_dir=settings.run_dir(job_id),
-        bench_accept_without_gates=settings.bench_accept_without_gates,
+        bench_accept_without_gates=settings.bench_accept_without_gates, grounder=grounder,
     )
 
     tasks = store.tasks_of(job_id)
@@ -455,7 +463,8 @@ def _materialize_patched_snapshot(
 
 
 async def _cleanup(job_id: str, store: Store, events: EventLog, sandbox: SandboxClient,
-                    models: ModelClient, graph_id: str, settings: Settings) -> None:
+                    models: ModelClient, graph_id: str, settings: Settings,
+                    grounder: Grounder | None = None) -> None:
     """The second planning pass. Deterministic detection, then the same Coder,
     the same gates, the same candidate race as any other task.
 
@@ -528,7 +537,7 @@ async def _cleanup(job_id: str, store: Store, events: EventLog, sandbox: Sandbox
         convention_index=convention_index, task_timeout_s=settings.task_timeout_s,
         sandbox_timeout_s=settings.sandbox_timeout_s, max_repairs=settings.max_repairs,
         runs_dir=settings.run_dir(job_id),
-        bench_accept_without_gates=settings.bench_accept_without_gates,
+        bench_accept_without_gates=settings.bench_accept_without_gates, grounder=grounder,
     )
 
     seq_base = max((t.seq for t in tasks), default=0) + 1
@@ -723,6 +732,9 @@ async def _integrate_and_publish(job_id: str, store: Store, events: EventLog, sa
     verdict = classify(signals)
     assert verdict is not None  # state="Done" is terminal
     verification_block = render_verification_block(verdict, signals.impact, signals.strength)
+    references_block = render_references_block(grounding_record(store, job_id))
+    if references_block:
+        verification_block += "\n\n" + references_block
     report = await compose_report(
         models, job_id=job_id, goal=job.goal,
         verified=[

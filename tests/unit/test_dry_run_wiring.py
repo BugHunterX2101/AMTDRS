@@ -28,7 +28,7 @@ def _stub_pipeline(monkeypatch, plan_error: Exception | None = None):
         calls.append(("resolve", graph_id))
         return "target-1"
 
-    async def plan(job_id, store, events, models, graph_id, target, settings):
+    async def plan(job_id, store, events, models, graph_id, target, settings, grounder=None):
         calls.append(("plan", graph_id, target))
         if plan_error is not None:
             raise plan_error

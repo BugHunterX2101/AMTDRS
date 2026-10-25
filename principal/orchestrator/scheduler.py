@@ -32,6 +32,7 @@ from principal.gates.syntax import check_syntax
 from principal.gates.tests import run_tests_gate, select_tests
 from principal.graph.embed import ConventionIndex
 from principal.graph.parse import CallSite
+from principal.grounding.tavily import Grounder, consult, library_failure
 from principal.models.client import ModelClient
 from principal.outcome import INFRA_DISCARD_PREFIX
 from principal.sandbox.client import SandboxClient
@@ -78,6 +79,9 @@ class TaskContext:
     # where they had not been, and failed. Filled by WaveRunner; the winning diff
     # stored for the task stays its own, so integration applies each change once.
     base_patches: dict[str, str] = field(default_factory=dict)
+    # Web grounding for repairs of failures raised inside a library. None, or a
+    # grounder without a key, means none is attempted and the skip is recorded.
+    grounder: Grounder | None = None
 
 
 @dataclass(slots=True)
@@ -309,9 +313,17 @@ async def _repair_once(
 ) -> tuple[str, Verdict, object | None]:
     content = _read_file(ctx.snapshot, task.target_file)
     trace = extract_stack_trace(run) if run is not None else "(no test output captured)"
+    # Only when the failure is raised inside an installed package: a failure in the
+    # repository's own code is already fully in the trace and the file.
+    query = library_failure(getattr(run, "report_json", "")) if run is not None else None
+    references = (
+        await consult(ctx.grounder, ctx.events, ctx.job_id, stage="repair", query=query, task_id=task.id)
+        if query else ()
+    )
     prompt = render_repair_prompt(
         target_file=task.target_file, current_content=content, failing_diff=failing_diff,
         failing_tests=getattr(run, "failing", []) if run else [], stack_trace=trace,
+        references=references,
     )
 
     attempt = ctx.store.create_attempt(

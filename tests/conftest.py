@@ -36,6 +36,8 @@ def settings(tmp_path: Path) -> Settings:
         principal_cache_dir=tmp_path / "cache",
         nebius_api_key="",
         nebius_project_id="",
+        # A developer's `.env` may hold a Tavily key; the suite must never spend it.
+        tavily_api_key="",
         principal_model_cache=False,
         # A developer's `.env` can set this for live runs; the suite must not read it.
         principal_require_live=False,

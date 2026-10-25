@@ -22,7 +22,7 @@ from principal.config import Settings
 from principal.db.store import Store
 from principal.orchestrator.signals import gather_signals, last_event
 from principal.outcome import classify
-from principal.publish.prbody import render_verification_block
+from principal.publish.prbody import render_verification_block, safe_link
 
 SCHEMA = 1
 
@@ -111,6 +111,24 @@ def _model_calls(store: Store, job_id: str, tokens_spent: int) -> dict[str, Any]
     }
 
 
+def grounding_record(store: Store, job_id: str) -> dict[str, Any] | None:
+    """Every web search the run made, and every one it decided not to make, as
+    recorded. `None` when the run recorded neither (it predates grounding)."""
+    rows = store.q(
+        "SELECT kind, payload FROM event WHERE job_id = ? AND kind IN ('grounding.searched', 'grounding.skipped')"
+        " ORDER BY seq", (job_id,),
+    )
+    if not rows:
+        return None
+    searched = [json.loads(r["payload"]) for r in rows if r["kind"] == "grounding.searched"]
+    return {
+        "searches": searched,
+        "skipped": [json.loads(r["payload"]) for r in rows if r["kind"] == "grounding.skipped"],
+        # Cache hits repeat an earlier search's results; they cost nothing.
+        "provider_requests": sum(1 for s in searched if not s.get("cached")),
+    }
+
+
 def _count(values: Any) -> dict[str, int]:
     out: dict[str, int] = {}
     for v in values:
@@ -161,6 +179,7 @@ def build_evidence(store: Store, settings: Settings, job_id: str) -> dict[str, A
         "usage": {**_usage(attempts, job.tokens_spent, job.token_budget),
                   "model_calls": _model_calls(store, job_id, job.tokens_spent)},
         "attempts": attempts,
+        "grounding": grounding_record(store, job_id),
         "artifacts": _artifacts(store, settings, job_id),
         "tunables": job.tunables,
         "reproduce": {
@@ -230,14 +249,29 @@ def render_markdown(ev: dict[str, Any]) -> str:
             "  - reconciles: every charged token is attributed" if gap == 0
             else f"  - **{gap:,} charged tokens are not attributed to any recorded call**"
         )
-    lines += [
-        "",
-        "## Reproduce", "", "```", ev["reproduce"]["command"], "```", "",
-    ]
+    lines.append("")
+    lines += _grounding_lines(ev.get("grounding"))
+    lines += ["## Reproduce", "", "```", ev["reproduce"]["command"], "```", ""]
     strength = ev["gates"].get("strength")
     if strength and strength.get("disclaimer"):
         lines += ["> " + strength["disclaimer"], ""]
     return "\n".join(lines)
+
+
+def _grounding_lines(g: dict[str, Any] | None) -> list[str]:
+    if g is None:
+        return []
+    lines = ["## Web grounding", "",
+             "Library documentation fetched for the planner and repairer prompts. No gate reads it.", ""]
+    for s in g["searches"]:
+        where = f"{s['stage']}" + (f", task {s['task_id']}" if s.get("task_id") else "")
+        rid = f"request `{s['request_id']}`" if s.get("request_id") else "no request id"
+        lines.append(f"- **{where}:** \"{s['query']}\" ({'cached, ' if s.get('cached') else ''}{rid})")
+        lines += [f"  - {safe_link(r['title'], r['url'])}" for r in s.get("results") or []]
+    for s in g["skipped"]:
+        lines.append(f"- **{s['stage']}:** not searched — {s['reason']}")
+    lines.append("")
+    return lines
 
 
 def _provenance_label(prov: dict[str, Any]) -> str:

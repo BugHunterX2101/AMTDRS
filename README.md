@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-22**: `pytest -q` → **471 passed** · `ruff check` clean · `lint-imports` → **3 contracts kept, 0 broken** (local, Windows). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-25**: `pytest -q` → **525 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on the earlier commit `93879e5`, before the changes since, passed on Ubuntu and Windows, Python 3.11 and 3.12 ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -266,11 +266,12 @@ flowchart TB
     style TF2 fill:#76b900,color:#000
 ```
 
-**Dependencies point downward only**, enforced in CI by `import-linter` (`lint-imports`, **3 contracts**):
+**Dependencies point downward only**, enforced in CI by `import-linter` (`lint-imports`, **4 contracts**):
 
 - **No model in the accept path** — `principal.gates` cannot import `principal.models` or `principal.agents`
+- **No web text in the accept path** — `principal.gates` cannot import `principal.grounding`
 - **Agents never touch the sandbox** — `principal.agents` cannot import `principal.sandbox` or `principal.publish`
-- **Layered architecture** — `api` → `orchestrator` → `gates | agents | publish` → `routines` → `sandbox | models | graph` → `db` → `config`; nothing imports upward
+- **Layered architecture** — `api` → `orchestrator` → `gates | agents | publish` → `routines` → `sandbox | models | graph | grounding` → `db` → `config`; nothing imports upward
 
 The first rule is the architecture's central claim expressed as something a machine checks rather than a sentence in a README. The contracts are defined in [`pyproject.toml`](pyproject.toml).
 
@@ -603,7 +604,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 471 tests, unit + integration
+make test          # or: pytest — 525 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 ```
 
@@ -637,6 +638,24 @@ principal serve           # http://127.0.0.1:8000
 
 > **Scope the token to a fork you own — never to an upstream repository.** Principal opens **draft** PRs only. Leave both unset and jobs still run to completion and produce the full verification report; only the publish step is skipped.
 
+### Optional: web grounding (Tavily)
+
+| Variable | Value |
+|---|---|
+| `TAVILY_API_KEY` | a Tavily API key; leave blank and no search is made |
+| `TAVILY_MAX_SEARCHES` | per-job cap, default **6** (basic depth, one credit each) |
+
+Two deterministic triggers decide when to search. A model never asks for a search:
+
+- **Planning.** A file in the blast radius imports a third-party package. The query is the package's documentation at the version the manifest declares. At most two packages are searched, the most widely imported first.
+- **Repair.** A failing test crashed inside an installed package (its crash frame is under `site-packages`). The query names the exception class and the library module.
+
+A query never contains repository source, a test name or an exception message.
+
+The results are shown to the planner and repairer in their own `UNTRUSTED WEB DATA` fence, with a notice that the repository's code and tests win where the two disagree. **No gate can read them:** an import contract forbids `principal.gates` from importing `principal.grounding`.
+
+Every search is recorded with its `request_id`, and every skip with its reason. Both appear in `evidence.md` and, when pages were shown, in the PR body.
+
 ### Tunables
 
 Every tunable lives in [`principal/config.py`](principal/config.py) and is **recorded into each job's metadata**:
@@ -652,6 +671,7 @@ Every tunable lives in [`principal/config.py`](principal/config.py) and is **rec
 | `token_budget_default` | **2,000,000** |
 | `task_timeout_s` / `sandbox_timeout_s` | **300** / **600** |
 | `strength_audit_cap` / `strength_floor` | **20** / **0.60** |
+| `tavily_max_searches` | **6** |
 
 ---
 
@@ -926,7 +946,7 @@ AMTDRS/
 │   ├── spike_sandbox.py              reachability, content-addressed dedup, cancellation
 │   └── spike_protocol.py             the 3×3 capability probe, with raw response inspection
 │
-├── tests/                            471 tests · hermetic: temp DB, FakeSandbox, no network
+├── tests/                            525 tests · hermetic: temp DB, FakeSandbox, no network
 │   ├── conftest.py
 │   ├── fixtures/
 │   │   ├── mini_repo/                16 Python files, 14 tests: static call sites, an aliased import,
@@ -972,6 +992,7 @@ AMTDRS/
 - **Not benchmarked on SWE Atlas.** The leaderboard is cited as evidence the problem is open, not as a result for Principal. `bench/tasks.json` pins **two tasks, not a suite**, and no benchmark numbers are published.
 - **Six live end-to-end runs**, one of them VERIFIED, are six data points, **not a success rate**. Three later runs on the `mini_repo` task also ended VERIFIED (arm C of the second benchmark, one through a local API server, one through the hosted URL); they are one task and not a rate either.
 - **Nebius prices are unconfirmed.** They sit behind the console login; the table above is third-party data.
+- **Web grounding has not run against the live Tavily API.** Its tests run against a mock transport. No live `request_id` has been recorded, and whether the references improve a plan or a repair has not been measured.
 - **Gate 3 (test execution) is Python-only.** The code graph also parses TypeScript, but test execution stops at Python.
 - An **untested private symbol can still be deleted**, and **sandbox network egress is not yet disableable** through the platform SDK.
 - The **hosted demo is live** (see above), but it has been exercised with one job on one fixture, its cold start in live mode has not been timed, and the API is unauthenticated and not rate-limited.
@@ -988,9 +1009,9 @@ Checked **2026-10-21** against the repository at the commit that introduced this
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **471 tests pass** | `python -m pytest -q` on the working tree, 2026-10-22 | Confirmed: 471 passed in 348 s |
+| **525 tests pass** | `python -m pytest -q` on the working tree, 2026-10-25 | Confirmed: 525 passed in 406 s |
 | **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `93879e5` | Confirmed: all 7 jobs succeeded ([run 39652989780](https://github.com/BugHunterX2101/AMTDRS/actions/runs/39652989780)) |
-| **3 import contracts kept** (incl. *no model in the accept path*) | `lint-imports` | Confirmed: 3 kept, 0 broken |
+| **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-25 | Confirmed: 4 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes` | Confirmed: all checks passed |
 | `principal doctor` output | ran it with credentials unset | Confirmed: matches the block above, modulo Python version |
 | **Blast radius: 7 files, 2 test files, 14 tests, 24 call sites, 14 naming `create`, 8 in `src/`, 2 unresolved** | `principal radius …` and counted the JSON fields | Confirmed exactly; ran in 0.7 s |

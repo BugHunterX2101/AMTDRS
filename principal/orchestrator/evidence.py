@@ -84,30 +84,39 @@ def _model_calls(store: Store, job_id: str, tokens_spent: int) -> dict[str, Any]
     nothing is claimed, and "no breakdown" is not the same statement as "zero".
     `unattributed_tokens` is whatever the budget charged that no record explains,
     reported as a number so a gap is visible rather than assumed away.
+    `cached_prompt_tokens` (the prompt tokens Token Factory served from its prompt
+    cache) is `None`, not 0, where no record carried it: the same rule, for runs
+    recorded before the field existed.
     """
     rows = store.q("SELECT payload FROM event WHERE job_id = ? AND kind = 'model.call' ORDER BY seq", (job_id,))
     if not rows:
         return None
     by_role: dict[tuple[str, str, str], dict[str, Any]] = {}
     attributed = 0
+    provider_cached: int | None = None
     for row in rows:
         c = json.loads(row["payload"])
         key = (c["role"], c["tier"], c["model"])
         slot = by_role.setdefault(key, {
             "role": c["role"], "tier": c["tier"], "model": c["model"],
             "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "billed_tokens": 0, "cached": 0,
+            "cached_prompt_tokens": None,
         })
         slot["calls"] += 1
         slot["prompt_tokens"] += c["prompt_tokens"]
         slot["completion_tokens"] += c["completion_tokens"]
         slot["billed_tokens"] += c["billed_tokens"]
         slot["cached"] += 1 if c["from_cache"] else 0
+        if "cached_prompt_tokens" in c:
+            slot["cached_prompt_tokens"] = (slot["cached_prompt_tokens"] or 0) + c["cached_prompt_tokens"]
+            provider_cached = (provider_cached or 0) + c["cached_prompt_tokens"]
         attributed += c["billed_tokens"]
     return {
         "calls": len(rows),
         "by_role": sorted(by_role.values(), key=lambda r: -r["billed_tokens"]),
         "attributed_tokens": attributed,
         "unattributed_tokens": tokens_spent - attributed,
+        "cached_prompt_tokens": provider_cached,
     }
 
 
@@ -241,7 +250,9 @@ def render_markdown(ev: dict[str, Any]) -> str:
         lines += [
             f"  - **{r['role']}** — `{r['model']}` ({r['tier']}): {r['calls']} call(s), "
             f"{r['billed_tokens']:,} tokens ({r['prompt_tokens']:,} prompt, {r['completion_tokens']:,} completion)"
-            + (f", {r['cached']} from cache" if r["cached"] else "")
+            + (f", {r['cached']} replayed from the local cache" if r["cached"] else "")
+            + (f", {r['cached_prompt_tokens']:,} prompt tokens served from Token Factory's prompt cache"
+               if r.get("cached_prompt_tokens") else "")
             for r in mc["by_role"]
         ]
         gap = mc["unattributed_tokens"]

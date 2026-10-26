@@ -38,6 +38,10 @@ class Completion:
     used_reasoning_fallback: bool
     protocol: Protocol
     from_cache: bool = False
+    # The part of `prompt_tokens` Token Factory served from its own prompt cache
+    # (`usage.prompt_tokens_details.cached_tokens`). Zero on a disk-cache hit,
+    # which never reached the provider, and when the provider reports nothing.
+    cached_prompt_tokens: int = 0
 
 
 @dataclass(slots=True)
@@ -200,6 +204,7 @@ class ModelClient:
             "role": role or "unlabelled", "tier": tier.value, "model": model,
             "prompt_tokens": completion.prompt_tokens, "completion_tokens": completion.completion_tokens,
             "billed_tokens": billed, "from_cache": completion.from_cache,
+            "cached_prompt_tokens": completion.cached_prompt_tokens,
             "protocol": completion.protocol.value,
             "reasoning_fallback": completion.used_reasoning_fallback,
         }
@@ -298,10 +303,14 @@ class ModelClient:
                     continue
                 raise failed(ModelEmptyResponse(model))
 
+            # Absent on a first call (Token Factory sends `prompt_tokens_details: null`
+            # until a prefix is cached), so missing reads as zero.
+            details = getattr(usage, "prompt_tokens_details", None)
             completion = Completion(
                 text=raw, prompt_tokens=int(usage.prompt_tokens) if usage else 0,
                 completion_tokens=int(usage.completion_tokens) if usage else estimate_tokens(raw),
                 used_reasoning_fallback=used_fallback, protocol=current,
+                cached_prompt_tokens=int(getattr(details, "cached_tokens", None) or 0),
             )
             return completion, downgraded_to, (abandoned_prompt, abandoned_completion)
 

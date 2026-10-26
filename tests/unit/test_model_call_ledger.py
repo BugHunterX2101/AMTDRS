@@ -278,6 +278,105 @@ def test_a_job_recorded_before_the_ledger_gets_no_breakdown(store, job_id):
     assert _model_calls(store, job_id, 26_597) is None
 
 
+# ------------------------------------------------- provider-side prompt caching --
+
+
+def _provider_client(store: Store, events: EventLog, details, **kwargs) -> ModelClient:
+    """A client whose provider is stood in for at the HTTP response, so the real
+    usage parsing runs. `details` is `usage.prompt_tokens_details`, which Token
+    Factory sends as null on a call whose prefix it has not cached yet."""
+    from types import SimpleNamespace
+
+    client = ModelClient(store=store, base_url="http://invalid.test/v1/", api_key="k",
+                         model_ids=MODELS, capability={}, events=events, **kwargs)
+    reply = SimpleNamespace(
+        headers={},
+        parse=lambda: SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok", reasoning_content=None,
+                                                             tool_calls=None))],
+            usage=SimpleNamespace(prompt_tokens=4315, completion_tokens=3, prompt_tokens_details=details),
+        ),
+    )
+
+    async def create(**kw):
+        return reply
+
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        with_raw_response=SimpleNamespace(create=create))))
+    return client
+
+
+async def test_prompt_tokens_the_provider_served_from_its_cache_are_recorded(store, events, job_id):
+    from types import SimpleNamespace
+
+    client = _provider_client(store, events, SimpleNamespace(cached_tokens=4224))
+
+    done = await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    assert done.cached_prompt_tokens == 4224
+    [call] = _calls(store, job_id)
+    assert call["cached_prompt_tokens"] == 4224 <= call["prompt_tokens"]
+    assert call["billed_tokens"] == 4315 + 3, "cached tokens are part of the prompt, not extra spend"
+
+
+async def test_a_call_with_no_cache_details_records_zero(store, events, job_id):
+    client = _provider_client(store, events, None)
+
+    await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    assert _calls(store, job_id)[0]["cached_prompt_tokens"] == 0
+
+
+async def test_a_local_cache_hit_claims_nothing_from_the_provider_cache(store, events, job_id, tmp_path):
+    """A disk-cache hit never reached Token Factory, so none of it was served from
+    Token Factory's cache, whatever the original call reported."""
+    from types import SimpleNamespace
+
+    from principal.models.cache import DiskCache
+
+    client = _provider_client(store, events, SimpleNamespace(cached_tokens=4224), cache=DiskCache(tmp_path))
+
+    await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+    await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    live, hit = _calls(store, job_id)
+    assert (live["from_cache"], live["cached_prompt_tokens"]) == (False, 4224)
+    assert (hit["from_cache"], hit["cached_prompt_tokens"]) == (True, 0)
+
+
+async def test_the_evidence_sums_provider_cached_tokens_and_renders_them(store, events, job_id, settings):
+    from types import SimpleNamespace
+
+    from principal.orchestrator.evidence import build_evidence, render_markdown
+
+    client = _provider_client(store, events, SimpleNamespace(cached_tokens=4224))
+    for _ in range(2):
+        await client.complete(Tier.NANO, MESSAGES, job_id=job_id, role="coder")
+
+    calls = _model_calls(store, job_id, store.get_job(job_id).tokens_spent)
+
+    assert calls["cached_prompt_tokens"] == 2 * 4224
+    [coder] = calls["by_role"]
+    assert coder["cached_prompt_tokens"] == 2 * 4224
+    assert calls["unattributed_tokens"] == 0
+    md = render_markdown(build_evidence(store, settings, job_id))
+    assert "8,448 prompt tokens served from Token Factory's prompt cache" in md
+
+
+def test_records_from_before_the_field_claim_no_provider_cache_figure(store, job_id):
+    """Missing is not zero: a run recorded before the field existed says nothing."""
+    old = {"role": "coder", "tier": "nano", "model": "nano-id", "prompt_tokens": 10,
+           "completion_tokens": 2, "billed_tokens": 12, "from_cache": False,
+           "protocol": "text", "reasoning_fallback": False}
+    with store.tx():
+        store.append_event(job_id, "model.call", old)
+
+    calls = _model_calls(store, job_id, 12)
+
+    assert calls["cached_prompt_tokens"] is None
+    assert calls["by_role"][0]["cached_prompt_tokens"] is None
+
+
 async def test_a_missing_key_is_refused_before_any_request_and_costs_nothing(store, events, job_id):
     """The hosted demo has no credentials. The call used to go out with a placeholder
     key and come back as the provider's 401, which a user then read as a platform fault."""

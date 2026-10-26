@@ -635,7 +635,7 @@ stateDiagram-v2
 
 - **Live is the default; stand-ins are labelled, never hidden.** Verification and measurement run on the real Nemotron models and the real Nebius sandbox. The in-process `FakeSandbox` (`--fake-sandbox`) is for tests only and prints `mode: DEMO — in-process FakeSandbox, results are NOT live-verified`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
 
-- **Every model call is itemised.** Each call writes a `model.call` event naming the **role**, the **tier and model id**, and the prompt / completion / billed tokens. The evidence bundle sums them per role and checks that the total equals the job's `tokens_spent`; tokens it cannot attribute are reported as a number, not rounded away.
+- **Every model call is itemised.** Each call writes a `model.call` event naming the **role**, the **tier and model id**, and the prompt / completion / billed tokens, plus how many of the prompt tokens Token Factory served from its own prompt cache. The evidence bundle sums them per role and checks that the total equals the job's `tokens_spent`; tokens it cannot attribute are reported as a number, not rounded away.
 
 - **The dependency rule is enforced by the right command.** `lint-imports` evaluates the contracts; `python -m importlinter.cli lint` exits 0 without evaluating any. That bug was caught during development, and it is exactly what makes a safety claim decorative.
 

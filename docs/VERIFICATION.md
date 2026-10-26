@@ -6,8 +6,8 @@ Re-checked **2026-10-26**: the commands were re-run and the sources re-fetched i
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| **531 tests pass** | `python -m pytest -q` on the working tree, 2026-10-26 | Confirmed: 531 passed in 299 s |
-| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `11310b1` | Confirmed: all 7 jobs succeeded ([run 40225078879](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40225078879)) |
+| **536 tests pass** | `python -m pytest -q` on the working tree, 2026-10-26, under Git Bash (from PowerShell, `bash` resolves to the WSL stub and about 20 FakeSandbox tests fail on the environment, not the code) | Confirmed: 536 passed in 303 s |
+| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `fc58ec5` | Confirmed: all 7 jobs succeeded ([run 40287640175](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40287640175)) |
 | **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-26 | Confirmed: 4 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes`, 2026-10-26 | Confirmed: all checks passed |
 | `principal doctor` output | ran it with the variables unset from a directory with no `.env`, 2026-10-26 | Confirmed: 12 tables, three warnings, `doctor: ready`. The `github` line is now the full text; with a `.env` present the output differs, which is why the note above says so |
@@ -39,6 +39,7 @@ Re-checked **2026-10-26**: the commands were re-run and the sources re-fetched i
 | **File tree in *Repository structure* matches the repository** | compared with `git ls-files` | Corrected: `grounding/`, `agents/spotlight.py`, `.env.example`, `.dockerignore` and the full list of `make` targets were missing, and the corpus is 12 inputs, not 10 |
 | **Hosted demo keeps its job history** | `GET /jobs/01M5T5F2AKQHRFRR8GGFST49S1` on the hosted URL, 2026-10-26 | **Not true**: `404 job not found` after the day's redeploys. Now stated in the README |
 | **Frontend: 514 → 518 ms desktop, 1206 → 1214 ms throttled mobile** | interleaved A/B runs of both builds | Confirmed within noise: *no change*, not an improvement. Measured on the previous design; not repeated after the 2026-10-22 redesign |
+| **`ModelClient` records the prompt tokens Token Factory serves from its prompt cache** | three identical 5,427-token prompts to `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` through `ModelClient` (`cache=None`, scratch SQLite store, real Token Factory), reading the `model.call` events and the evidence bundle, 2026-10-26 | Confirmed for one prompt shape on one day: `cached_prompt_tokens` was 0, 4,224 and 4,224; `billed_tokens` was 5,451 on every call (billing and the budget are unchanged); the evidence bundle reported 8,448 in total, 0 unattributed. Provider caching is best-effort and implicit, so this is not a rate. Not a full-job LIVE run |
 | **Hosted demo reports `ContreeSandbox`, inference and sandbox verified, `live:true`** | `curl` of the live `/healthz`, 2026-10-22 and again 2026-10-26 (after the `020e124` deploy) | Confirmed both times |
 | **A full job on the hosted URL ends VERIFIED, clean (6 of 6 tasks)** | `POST /jobs` to `amtdrs.onrender.com`, then its `evidence.md`, which reads "Executed on: LIVE" | Confirmed for one run; not a rate |
 | ~~Hosted demo reports FakeSandbox, `live:false`; 33 s cold start~~ | `curl` of the live `/healthz` and `/` before the service had credentials | Superseded: true of the earlier build only. The cold start has not been re-timed in live mode |

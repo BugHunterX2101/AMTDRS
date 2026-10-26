@@ -37,7 +37,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3**: Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Checked** | 2026-10-26: 531 tests, `ruff` clean, 4 import contracts kept. CI on `11310b1` passed all 7 jobs on Ubuntu and Windows, Python 3.11 and 3.12 ([run 40225078879](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40225078879)). The [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Checked** | 2026-10-26: 536 tests, `ruff` clean, 4 import contracts kept. CI on `fc58ec5` passed all 7 jobs on Ubuntu and Windows, Python 3.11 and 3.12 ([run 40287640175](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40287640175)). The [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -251,7 +251,7 @@ Missing credentials are a **hard error** (`refusing to run: …`), never a silen
 Run the tests:
 
 ```bash
-make test          # or: pytest — 531 tests, unit + integration
+make test          # or: pytest — 536 tests, unit + integration
 make lint          # ruff + import-linter (the architecture contracts)
 make ci            # lint, then test: what CI runs on each OS
 ```
@@ -752,7 +752,7 @@ AMTDRS/
 ├── dashboard/                        React + Vite, two pages, one dist/: landing (/) and console (/app/)
 ├── bench/                            harness.py · arms.py (A/B/C) · score.py (four buckets) · tasks.json
 ├── spikes/                           throwaway scripts that each answered one question
-├── tests/                            531 tests, hermetic: temp DB, FakeSandbox, no network
+├── tests/                            536 tests, hermetic: temp DB, FakeSandbox, no network
 │   ├── fixtures/mini_repo/           16 Python files, 14 tests: static call sites, an aliased import, dynamic dispatch
 │   ├── fixtures/weak_repo/           tests pass but are weak — a green change can still be unverified
 │   ├── fixtures/weak_repo_oracle/    an independent oracle for the weak repo
@@ -801,15 +801,15 @@ Checked on 2026-10-26 by running the commands and re-fetching the sources:
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| 531 tests pass | `python -m pytest -q` | 531 passed in 299 s |
-| CI green on Linux and Windows, Python 3.11 and 3.12 | GitHub Actions API, commit `11310b1` | all 7 jobs succeeded |
+| 536 tests pass | `python -m pytest -q` | 536 passed in 303 s |
+| CI green on Linux and Windows, Python 3.11 and 3.12 | GitHub Actions API, commit `fc58ec5` | all 7 jobs succeeded |
 | 4 import contracts kept; `ruff` clean | `lint-imports`; `ruff check principal mcp_code_graph bench tests spikes` | 4 kept, 0 broken; all checks passed |
 | Blast radius of `create()`: 7 files, 2 test files, 14 tests, 24 call sites, 14 naming `create`, 2 unresolved | `principal radius …`, counted the JSON | exact |
 | Runs 4 to 6: tokens charged equal tokens attributed | read-only query of `principal.db` | confirmed |
 | SWE Atlas, Stack Overflow, Deloitte, Moderne, rate limits, sandbox limits, Nemotron architecture | sources re-fetched | confirmed; two earlier errors (a 45% figure, a McKinsey attribution) were corrected |
 | Every URL in the README | `curl` and a separate fetch | all resolve |
 
-**Not re-checked in that pass:** runs 1 to 3 against the database; Super and Ultra prices (third-party listings only); the hackathon dates (the Devpost page returned 403 to the fetch tool, so the dates rest on third-party listings); the hosted cold start; and the 531-test count after `11310b1`, which changed one help string and was followed by the 6 CLI tests only. The full ledger, with every row's method and result, is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+**Not re-checked in that pass:** runs 1 to 3 against the database; Super and Ultra prices (third-party listings only); the hackathon dates (the Devpost page returned 403 to the fetch tool, so the dates rest on third-party listings); and the hosted cold start. The full ledger, with every row's method and result, is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
 
 ## Documentation
 

@@ -4,7 +4,7 @@
 
 *Nebius x NVIDIA Hackathon, Coding and Agentic Engineering track*
 
-> **Status: design-time document.** Figures here, such as repositories up to about 2,000 files and under 20 minutes per job, are targets set before the build, not measurements. Nothing in the code caps repository size; what is enforced is the blast radius (depth 3, at most 40 files). What was built and measured is in the [README](../README.md): the live runs and the verification ledger.
+> **Status: design-time document.** Figures here, such as repositories up to about 2,000 files and under 20 minutes per job, are targets set before the build, not measurements. Nothing in the code caps repository size; what is enforced is the blast radius (depth 3, at most 40 files). What was built and measured is in the [README](../README.md), with the live runs in [RUNS.md](RUNS.md) and the verification ledger in [VERIFICATION.md](VERIFICATION.md).
 
 ## Executive summary
 

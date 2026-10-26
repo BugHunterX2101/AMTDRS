@@ -36,7 +36,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **Models** | **NVIDIA Nemotron 3** — Nano 30B-A3B · Super 120B-A12B · Ultra 550B-A55B |
 | **Stack** | Python 3.11+ · FastAPI + SSE · SQLite · tree-sitter · React + Vite · MCP |
 | **License** | **Apache 2.0** |
-| **Last verified** | **2026-10-26**: `pytest -q` → **531 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). CI on `020e124`, the last commit that changed code, passed all 7 jobs on Ubuntu and Windows, Python 3.11 and 3.12 ([run 40223296567](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40223296567)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
+| **Last verified** | **2026-10-26**: `pytest -q` → **531 passed** · `ruff check` clean · `lint-imports` → **4 contracts kept, 0 broken** (local, Windows, Git Bash). The local run was taken before `11310b1`, which changed one CLI help string. CI on `11310b1`, the last commit that changed code, passed all 7 jobs on Ubuntu and Windows, Python 3.11 and 3.12 ([run 40225078879](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40225078879)). Counts drift as the code changes; the [CI badge](https://github.com/BugHunterX2101/AMTDRS/actions/workflows/ci.yml) is the live signal. |
 
 ---
 
@@ -1052,7 +1052,7 @@ Re-checked **2026-10-26**: the commands were re-run and the sources re-fetched i
 | Claim | How it was checked | Result |
 |---|---|---|
 | **531 tests pass** | `python -m pytest -q` on the working tree, 2026-10-26 | Confirmed: 531 passed in 299 s |
-| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `020e124` | Confirmed: all 7 jobs succeeded ([run 40223296567](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40223296567)) |
+| **CI green on Linux + Windows × Py 3.11 + 3.12** | GitHub Actions API, for commit `11310b1` | Confirmed: all 7 jobs succeeded ([run 40225078879](https://github.com/BugHunterX2101/AMTDRS/actions/runs/40225078879)) |
 | **4 import contracts kept** (incl. *no model in the accept path* and *no web text in the accept path*) | `lint-imports`, 2026-10-26 | Confirmed: 4 kept, 0 broken |
 | `ruff check` clean | `ruff check principal mcp_code_graph bench tests spikes`, 2026-10-26 | Confirmed: all checks passed |
 | `principal doctor` output | ran it with the variables unset from a directory with no `.env`, 2026-10-26 | Confirmed: 12 tables, three warnings, `doctor: ready`. The `github` line is now the full text; with a `.env` present the output differs, which is why the note above says so |

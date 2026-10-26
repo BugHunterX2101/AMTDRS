@@ -28,6 +28,7 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 | **The guarantee** | **Fail closed. No green test, no PR.** `NoPR` is a success state: "I tried, here is what I tried, I could not verify it, so I am not shipping it." |
 | **What makes it different** | **No model in the accept path.** The decision is a `pytest` exit code from a real run in a real microVM, and an import contract enforced in CI stops the gate code from ever importing the model code. |
 | **Honest by construction** | Every run is classified **VERIFIED / UNVERIFIED / FAILED / ERROR**. A green suite that never exercised the changed code is reported as *unverified*, not as success. |
+| **Headline result** | On a fixture repository, 6 of 6 tasks verified and **9 of 9 call sites** migrated, on 19,855 tokens. On a repository with weak tests, a change whose tests all passed was **refused as unverified**. Each is one run, not a rate; see [Results](#results). |
 
 | | |
 |---|---|
@@ -42,46 +43,11 @@ Built for the **[Nebius × NVIDIA Global AI Hackathon 2026](https://nebiusglobal
 
 ## Contents
 
-1. [Results](#results): six live runs, the hosted run, the benchmark
-2. [The problem](#the-problem) · [Why *wide* refactors](#why-wide-refactors-specifically)
-3. [How it works](#how-it-works): the gates and the four outcomes
-4. [Architecture](#architecture)
-5. [Design decisions worth reading the code for](#design-decisions-worth-reading-the-code-for)
-6. [How NVIDIA models and Nebius services are used](#how-nvidia-models-and-nebius-services-are-used)
-7. [What a run costs](#what-a-run-costs) · [Where this sits in the market](#where-this-sits-in-the-market)
-8. [Quickstart](#quickstart--no-credentials-needed) · [Full setup](#full-setup--with-nebius-token-factory)
-9. [Running it](#running-it): CLI, API, dashboard, MCP server, benchmark, deploy
-10. [Repository structure](#repository-structure) · [Safety](#safety) · [What is *not* claimed](#what-is-not-claimed)
-11. [Verification](#verification) · [Documentation](#documentation)
-
----
-
-## Results
-
-Everything below ran on the **real Nemotron models and the real Nebius sandbox**. Each row is **one run, not a rate**. Principal's own classifier, not a person, assigned every outcome.
-
-| Run | Repository and goal | Outcome | What decided it |
-|---|---|---|---|
-| **6** | `mini_repo`: make `create()`'s `ttl` keyword-only, update every call site | **VERIFIED** | 6 of 6 tasks verified by a first-round Nano candidate. **9 of 9 call sites** changed, 0 unexpected files, both dynamic paths in `src/registry.py` exercised by tests. 7 of 9 injected faults detected (78%, floor 60%). **19,855 tokens.** |
-| **Hosted** | the `mini_repo` goal again, started from the public URL | **VERIFIED** | 6 of 6 tasks, 30,644 tokens, $0.0116 of sandbox cost, injected-fault score 78% |
-| **1** | weak-tests repository: clean up `pricing.calc_total` | **UNVERIFIED** | Both tasks verified and the tests pass, yet the strength audit caught **0 of 1** injected faults and `src/reports.py` reaches the target through `getattr`, which no test runs. Principal produced a change and **refused to call it verified**. |
-| **2** | same, model cache off | UNVERIFIED | Every candidate and repair failed; no change produced, repository untouched. The same job is not deterministic. |
-| **3** | `mini_repo` | UNVERIFIED, `NoPR` | 2 of 6 tasks discarded, over the 30% cap |
-| **4** | `mini_repo`, after the diff-parser fix | UNVERIFIED | 5 of 7 verified, but the task that changes the definition of `create()` was discarded, so `ttl` was not keyword-only |
-| **5** | `mini_repo`, dependency-aware verification | UNVERIFIED, `NoPR` | 4 of 6 verified; one consumer discarded after a blank-line mismatch, so the definition's task failed red |
-
-- **The token ledger reconciles.** In runs 2 to 6, tokens charged equal tokens attributed to a role and model, with none unattributed: 26,711 · 58,409 · 69,748 · 56,261 · 19,855.
-- **The runs before the first VERIFIED result lost tasks for specific, fixable reasons.** A definition cannot pass tests while its callers are still on the old signature, so a task is now verified together with the diffs it depends on. A reply that wrote one blank line where the file had two was rejected, so hunk location tolerates blank lines when the exact context is absent. The fixture's own tests passed `ttl` positionally, so no correct change could pass them; they were changed, and that is stated in [`docs/RUNS.md`](docs/RUNS.md).
-
-**Benchmark** (`make eval`: three arms over two pinned tasks, 2026-10-22 after the fixes, one run per cell):
-
-| Arm | Verified | Unverified | Failed on merit | False accepts |
-|---|---:|---:|---:|---:|
-| **A** single shot, no gates | 1 | 0 | 1 | 0 of 1 checked |
-| **B** one candidate, gates on | 0 | 2 | 0 | — |
-| **C** full swarm | **1** | 1 | 0 | — |
-
-The only VERIFIED gated cell is arm C on `mini_repo`. On the weak-tests repository the swarm stopped at UNVERIFIED with an injected-fault score of 0.0 against a 0.6 floor, which is that fixture doing its job. Two tasks and one run per cell cannot rank the arms. The first pass before the fixes reached VERIFIED nowhere. Full tables, the five causes found and their measurements: [`docs/RUNS.md`](docs/RUNS.md).
+1. **Why**: [The problem](#the-problem) · [Why *wide* refactors](#why-wide-refactors-specifically) · [Where this sits in the market](#where-this-sits-in-the-market)
+2. **What it does**: [How it works](#how-it-works), the gates and the four outcomes · [Results](#results)
+3. **Use it**: [Quickstart](#quickstart--no-credentials-needed) · [Full setup](#full-setup--with-nebius-token-factory) · [Running it](#running-it), covering the CLI, API, dashboard, MCP server, benchmark and deploy
+4. **Inside**: [Architecture](#architecture) · [Design decisions](#design-decisions-worth-reading-the-code-for) · [How NVIDIA models and Nebius services are used](#how-nvidia-models-and-nebius-services-are-used) · [What a run costs](#what-a-run-costs)
+5. **Trust and reference**: [Repository structure](#repository-structure) · [Safety](#safety) · [What is *not* claimed](#what-is-not-claimed) · [Project provenance](#project-provenance) · [Verification](#verification) · [Documentation](#documentation) · [License](#license)
 
 ---
 
@@ -116,22 +82,48 @@ Deprecating a parameter, renaming a widely used internal API, threading a new co
 
 > **The thesis: the remaining gap is a *scaffolding* problem more than a *weights* problem.** Principal has **not** been run against SWE Atlas; the board is cited as evidence the problem is open. See [What is *not* claimed](#what-is-not-claimed).
 
+## Where this sits in the market
+
+Two mature categories each cover part of the problem. Neither covers the middle.
+
+| | **Coding agents**<br>(Codex, Claude Code, Cursor, Devin) | **Deterministic mass refactoring**<br>([OpenRewrite](https://docs.openrewrite.org/) / [Moderne](https://moderne.ai/)) | **Principal** |
+|---|---|---|---|
+| Handles a *novel*, bespoke refactor | yes | no, needs a pre-written recipe | **yes** |
+| Correctness signal | human review | AST transform correct by construction | **real test-suite exit code** |
+| Will it ship something unverified? | yes, that is what review is for | no | **no, it fails closed** |
+| Scales across many repositories | partially | **yes**, its whole design | one repository per job |
+| Measured ceiling on wide refactors | top of SWE Atlas: **59.05** | n/a, not a model | not measured on SWE Atlas; **races several attempts** |
+
+- **Coding agents** are general but unverified: they hand you the review problem.
+- **OpenRewrite / Moderne** is the serious incumbent (Moderne raised a **$30M Series B, led by Acrew Capital, on 11 Feb 2025**, per [TechCrunch](https://techcrunch.com/2025/02/11/moderne-raises-30m-to-solve-technical-debt-across-complex-codebases/)): deterministic transforms are exceptionally safe but **require someone to write the recipe first**.
+- **Principal takes the third position:** LLM generality for the diff, deterministic machinery for the decision. *The model proposes; a real test run in a real sandbox disposes.*
+
 ---
 
 ## How it works
 
-For each unit of work Principal:
+A job, start to finish (the [pipeline diagram](#the-verification-pipeline) shows the same sequence with its exits):
+
+1. **Baseline.** Clone the repository at a commit inside a sandbox, install it and run the whole suite. A green suite becomes the checkpoint image `C0`, which everything later forks from, with a per-test coverage map. A red suite aborts the job.
+2. **Map.** tree-sitter builds a code graph. The **blast radius** is everything that can reach the target through call and import edges: a reverse search to depth 3, at most 40 files. Over that the job aborts rather than truncating.
+3. **Characterise**, only if the target has no tests: frozen tests that pass on `C0`.
+4. **Plan.** Nemotron 3 Ultra splits the goal into ordered **tasks**, one file each, with consumers first when the change is breaking.
+5. **Execute.** Each task races candidate patches through gates 1 to 3 (below). If more than 30% of the tasks end discarded, the job stops in `NoPR`.
+6. **Clean up** the imports and symbols the refactor itself orphaned.
+7. **Integrate and judge.** The verified patches are applied together, gates 4, 5, 4b and 4c run once, and the run is classified (see the four outcomes below).
+
+Inside step 5, for each task Principal:
 
 1. generates **several independent candidate patches in parallel** (3 per task, temperatures **0.0 / 0.4 / 0.8**);
-2. pushes each through **the gates**, cheapest first;
-3. **races them**: the first to go green wins;
+2. pushes each through **gates 1 to 3**, cheapest first;
+3. **races them**: the first to go green wins, and if all fail a Super model gets a bounded number of repairs;
 4. **cancels the losers**, whose failure costs nothing because it happened inside a private sandbox fork nobody ever sees.
 
 **No scoring function and no model in the accept path:** the decision is a `pytest` exit code, not a language model's opinion of a diff. **Losing is free:** a failed candidate corrupts only its own fork.
 
 ### The gates
 
-Ordered so that most bad candidates die *before* they touch a sandbox. A candidate rejected by gate 1 or 2 spent one cheap completion and zero sandbox operations, which is what makes generous fan-out affordable.
+Gates 1 to 3 run on every candidate, cheapest first, so most bad candidates die *before* they touch a sandbox: a candidate rejected by gate 1 or 2 spent one cheap completion and zero sandbox operations, which is what makes generous fan-out affordable. Gates 4, 5, 4b and 4c run once per job, on the combined result, in the order listed.
 
 | Gate | What it proves | Runs where | Cost |
 |---|---|---|---|
@@ -159,273 +151,32 @@ Green tests are necessary, not sufficient. Every finished run is classified into
 - The **strength audit is a measurement, not a proof**: a run that could not be measured says so instead of defaulting to a flattering score.
 - Every finished run has an **evidence bundle** (`GET /jobs/{id}/evidence.zip`): the verdict, each gate's result, every attempt's diff and test log with **SHA-256** hashes (a file changed after the run is flagged), and the command that reproduces the run.
 
----
+## Results
 
-## Architecture
+Everything below ran on the **real Nemotron models and the real Nebius sandbox**. Runs are in the order they were made. Each row is **one run, not a rate**, and Principal's own classifier, not a person, assigned every outcome. Terms such as the strength audit, injected faults and the 30% cap are defined in [How it works](#how-it-works).
 
-### System context
-
-```mermaid
-flowchart LR
-    DEV["Developer"] -->|"goal + target symbol"| P(("Principal"))
-    P -->|"draft PR"| GH["GitHub"]
-    REV["Human reviewer"] -->|"approves, merges"| GH
-    P <-->|"chat completions"| TF["Token Factory<br/>inference<br/>(NVIDIA Nemotron 3)"]
-    P <-->|"checkpoint / fork / run"| SBX["Nebius<br/>Sandboxes<br/>(microVMs)"]
-    P -->|"clone at commit"| REPO[("Target repository")]
-    SBX -->|"test results,<br/>coverage"| P
-
-    style P fill:#2563eb,color:#fff,stroke:#1e40af
-    style SBX fill:#059669,color:#fff,stroke:#047857
-    style TF fill:#76b900,color:#000,stroke:#5a8f00
-```
-
-Principal never merges anything. **The reviewer is inside the trust boundary by design**: every guarantee here assumes a human approves before code lands.
-
-### Containers
-
-```mermaid
-flowchart TB
-    UI["Dashboard<br/>React + SSE"] --> API["HTTP API<br/>FastAPI + SSE"]
-    subgraph ORCH["Orchestrator process — one SQLite file, one Python process"]
-        API --> JOB["Job state machine"]
-        JOB --> SCHED["Scheduler<br/>semaphores, candidate race"]
-        SCHED --> AGENTS["Agents<br/>planner · coder · repairer<br/>characteriser · reporter"]
-        SCHED --> GATES["Gate pipeline<br/>scope · syntax · tests<br/>behaviour · security<br/>impact · strength"]
-        JOB --> PUB["Publisher<br/>the only GitHub credential"]
-        JOB --> STORE[("SQLite<br/>+ append-only event log")]
-    end
-    AGENTS --> MODELS["Model client<br/>budget · cache · probe"]
-    GATES --> SANDBOX["Sandbox client"]
-    MCP["code-graph MCP<br/>5 read-only tools"] --> STORE
-    MODELS --> TF2["Token Factory<br/>inference"]
-    SANDBOX --> SBX2["Nebius<br/>Sandboxes"]
-    PUB --> GH2["GitHub API"]
-
-    style JOB fill:#2563eb,color:#fff
-    style GATES fill:#dc2626,color:#fff
-    style SANDBOX fill:#059669,color:#fff
-    style SBX2 fill:#059669,color:#fff
-    style TF2 fill:#76b900,color:#000
-```
-
-**Dependencies point downward only**, enforced in CI by `import-linter` (`lint-imports`, **4 contracts**, defined in [`pyproject.toml`](pyproject.toml)):
-
-- **No model in the accept path**: `principal.gates` cannot import `principal.models` or `principal.agents`
-- **No web text in the accept path**: `principal.gates` cannot import `principal.grounding`
-- **Agents never touch the sandbox**: `principal.agents` cannot import `principal.sandbox` or `principal.publish`
-- **Layered architecture**: `api` → `orchestrator` → `gates | agents | publish` → `routines` → `sandbox | models | graph | grounding` → `db` → `config`; nothing imports upward
-
-The first rule is the architecture's central claim expressed as something a machine checks rather than a sentence in a README.
-
-### The verification pipeline
-
-```mermaid
-flowchart TD
-    G["goal + repo + target symbol"] --> ING
-
-    subgraph ING["1 · INGEST + BASELINE"]
-        direction TB
-        I1["clone, install, run the full suite"] --> I2["C0 — green baseline image<br/>+ per-test coverage map"]
-    end
-    ING -->|"suite already red"| ABORT1["Aborted"]
-    ING --> MAP
-
-    subgraph MAP["2 · MAP"]
-        direction TB
-        M1["tree-sitter: symbols, call edges,<br/>import edges, test edges"] --> M2["blast radius = reverse BFS<br/>depth 3, cap 40 files"]
-    end
-    MAP -->|"radius over cap"| ABORT2["Aborted<br/>raises, never truncates"]
-    MAP --> CHAR
-
-    CHAR["3 · CHARACTERISE<br/>only if the target is uncovered<br/>frozen tests that pass on C0"] -->|"no usable oracle"| NSN["NoSafetyNet"]
-    CHAR --> PLAN
-
-    PLAN["4 · PLAN — Nemotron 3 Ultra<br/>ordered tasks, one file each,<br/>dependency-aware waves"] --> EXEC
-
-    subgraph EXEC["5 · EXECUTE — per task"]
-        direction TB
-        E0["3 candidates — Nemotron 3 Nano<br/>temperatures 0.0 / 0.4 / 0.8"]
-        E0 --> EG1["gate 1: scope"]
-        EG1 --> EG2["gate 2: syntax"]
-        EG2 --> EG3["gate 3: local tests<br/>sandbox"]
-        EG3 -->|"first green"| WIN["winner — losers cancelled"]
-        EG3 -->|"all red"| REP["repair — Nemotron 3 Super<br/>bounded, stack trace only"]
-        REP --> EG3
-    end
-    EXEC -->|"more than 30% discarded"| NOPR1["NoPR"]
-    EXEC --> CLEAN["6 · CLEANUP<br/>imports and symbols the refactor<br/>itself orphaned — refactor-local only"]
-    CLEAN --> INTEG
-
-    subgraph INTEG["7 · INTEGRATE + JUDGE"]
-        direction TB
-        N1["all patches together<br/>full suite"] --> N2["API delta · coverage floor ·<br/>test-count invariant"]
-        N2 --> N3["security gate"]
-        N3 --> N4["blast-radius check ·<br/>strength audit"]
-        N4 --> N5["classify outcome"]
-    end
-    INTEG -->|"green, nothing definite wrong"| PR["Draft pull request<br/>+ evidence table"]
-    INTEG -->|"red, or a check found a defect"| NOPR2["NoPR report<br/>a success state"]
-
-    style ABORT1 fill:#dc2626,color:#fff
-    style ABORT2 fill:#dc2626,color:#fff
-    style NOPR1 fill:#d97706,color:#fff
-    style NOPR2 fill:#d97706,color:#fff
-    style NSN fill:#d97706,color:#fff
-    style PR fill:#059669,color:#fff
-    style WIN fill:#059669,color:#fff
-```
-
-### Job state machine
-
-The states below are the ones `principal/orchestrator/job.py` actually writes.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Ingesting
-    Ingesting --> Baselining
-    Baselining --> Mapping: suite green
-    Baselining --> Aborted: suite already red
-    Mapping --> Characterising
-    Mapping --> Aborted: blast radius over cap
-    Characterising --> Planning
-    Characterising --> NoSafetyNet: no usable oracle
-    Planning --> Executing: task list valid
-    Planning --> Aborted: plan unparseable
-    Executing --> CleanupPlanning: tasks settled
-    Executing --> NoPR: over 30% discarded
-    CleanupPlanning --> CleanupExecuting: orphans found
-    CleanupPlanning --> Integrating: none found
-    CleanupExecuting --> Integrating
-    Integrating --> Publishing: all gates pass
-    Integrating --> NoPR: integration red or a check failed
-    Publishing --> Done
-    Aborted --> [*]
-    NoSafetyNet --> [*]
-    NoPR --> [*]
-    Done --> [*]
-```
-
-`NoPR` and `NoSafetyNet` carry the same visual weight as `Done` throughout the dashboard, **on purpose**. They are correct results: the system did its job and declined to ship. `Aborted` is reserved for a run that *could not* proceed (red baseline, oversized radius, platform failure).
-
----
-
-## Design decisions worth reading the code for
-
-- **The blast radius raises; it does not truncate.** A reverse-edge BFS over call and import edges, **depth 3, capped at 40 files** (`principal/graph/radius.py`). Over the cap, Principal **aborts with `RADIUS_TOO_LARGE`** rather than silently working on the first 40, because a truncated radius produces a patch that **looks complete and is not**: the most dangerous failure this system could have.
-
-- **Unresolved call sites are reported, not hidden.** A dynamic dispatch like `registry[name](user)` cannot be proved to reach the target, so it is listed in the PR under *"what a human must check"*. [`graph/resolve.py`](principal/graph/resolve.py) separates a genuinely unresolvable dynamic call from `len()`: on the bundled fixture, the difference between noise and **exactly 2 real entries**, both in `src/registry.py`.
-
-- **Behaviour preservation beyond "tests pass".** A patch that deletes a function *and its tests* passes. So the public-API delta must match the plan's **declared** removals, **coverage may not fall**, and the **test count may not shrink**.
-
-- **Per-test coverage drives test selection.** The baseline runs `pytest --cov-context=test`, yielding a test→line map. Each fork runs only the tests that cover the lines it changed, which keeps gate 3 at **seconds rather than minutes**.
-
-- **Characterisation never lets a model write its own exam.** Where the target is uncovered, a Characteriser writes tests, but it **never sees the refactoring goal**, its tests must **pass against the unmodified baseline** or are discarded, they are **frozen** before refactoring starts, and a change verified *only* by generated tests is **reported as such**.
-
-- **The security gate is differential.** It scans the baseline and the result and fails only on what is **new**, so it is usable on legacy code full of pre-existing findings. Fingerprints exclude line numbers, since every refactor shifts them. Dependency and licence risk are closed *by construction*: gate 1 rejects any diff touching a manifest or lockfile.
-
-- **The event log is the product.** Every state change is an **append-only row**, streamed as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace. A laptop that sleeps for ten seconds reconnects into a live view, and because the run id lives in the URL (`/app/?job=<id>`) a finished run is reconstructible from a link alone wherever the database persists (the free hosted tier does not keep it; see [Deploying the hosted demo](#deploying-the-hosted-demo)).
-
-- **Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks. `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **12 named adversarial inputs**, including `correct.diff` and `miscounted_header.diff`, which **must pass**, because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything. `miscounted_ends_on_change.diff` pins the one place the diff parser repairs a model's `@@` line counts (a hunk that ends on a context line) against the place it must not (a hunk that may have been cut short).
-
-- **Live is the default; stand-ins are labelled, never hidden.** Verification and measurement run on the real Nemotron models and the real Nebius sandbox. The in-process `FakeSandbox` (`--fake-sandbox`) is for tests only and prints `mode: DEMO — in-process FakeSandbox, results are NOT live-verified`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
-
-- **Every model call is itemised.** Each call writes a `model.call` event naming the **role**, the **tier and model id**, and the prompt / completion / billed tokens. The evidence bundle sums them per role and checks that the total equals the job's `tokens_spent`; tokens it cannot attribute are reported as a number, not rounded away.
-
-- **The dependency rule is enforced by the right command.** `lint-imports` evaluates the contracts; `python -m importlinter.cli lint` exits 0 without evaluating any. That bug was caught during development, and it is exactly what makes a safety claim decorative.
-
----
-
-## How NVIDIA models and Nebius services are used
-
-### NVIDIA Nemotron 3: three tiers, three different jobs
-
-Nemotron 3 is a **hybrid Mamba-Transformer Mixture-of-Experts** family. For Nano 30B-A3B, NVIDIA's model card describes a **52-layer** stack (**23 Mamba-2, 23 MoE and 6 attention layers**) with **3.5B of 30B parameters active** per token ([model card](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b.md); [paper](https://arxiv.org/pdf/2512.20856)).
-
-That matters here: **wide fan-out is only economical if each candidate is cheap**, and a candidate is a long prompt: a blast radius, every call site, surrounding context. A dense model at the same accuracy would cost far more per candidate and "generate three, race them" would collapse.
-
-| Tier | Model id | Scale | What it does | Why this tier |
-|---|---|---|---|---|
-| **Nano** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | 30B total · 3.5B active | generates candidate patches; summarises failing test output | the highest-volume call (3 per task, dozens per job) and the one where being wrong is cheapest: gate 3 catches it |
-| **Super** | `nvidia/nemotron-3-super-120b-a12b` | 120B total · 12B active | **repairs** a candidate that failed its tests | narrow and well-specified, but needs real reasoning about *why* a test failed, without Ultra's latency inside a retry loop |
-| **Ultra** | `nvidia/Nemotron-3-Ultra-550b-a55b` | 550B total · 55B active | **plans**: decomposes the goal into an ordered, dependency-aware task list | runs **once per job** and every downstream decision inherits its mistakes, so it is the one place to pay for the best long-horizon reasoning |
-
-Every model call is tagged with its tier and its token cost, so **the routing is measurable rather than asserted**. The planner tier is configurable (`PRINCIPAL_PLANNER_TIER=super|ultra`, default **ultra**) so Super against Ultra can be measured with `bench/` rather than assumed.
-
-#### The `reasoning_content` trap, and the boot-time capability probe
-
-Reasoning models behind an OpenAI-compatible API can return output in `reasoning_content` and leave `content` **empty**. Code that trusts `choices[0].message.content` gets an empty string, which is not an error but a *successful* call that silently produces nothing, and the failure surfaces three layers away as "the agent generated no patch."
-
-Principal does not guess. At boot it runs a **3×3 capability probe**, each of the three models against each of the three output protocols (JSON schema, tool calls, fenced text), **pins each model to the protocol it demonstrated**, and prints the table. `PRINCIPAL_FORCE_PROTOCOL` pins one protocol for everything. `PRINCIPAL_REQUIRE_LIVE=1` makes startup **fail** unless inference *and* Sandboxes both verify, so a live deployment cannot silently fall back to the credential-less demo; `/healthz` reports `inference_verified`, `sandbox_verified` and `live`.
-
-### Nebius Token Factory: Sandboxes are the whole design
-
-**1 · Inference.** The OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`, through the official `openai` SDK with a different `base_url` and **no custom HTTP client**. Per Nebius's [rate-limit documentation](https://docs.tokenfactory.nebius.com/ai-models-inference/rate-limits.md), the console holds the real defaults, and the page's scaling example starts from **60 requests/min and 400,000 tokens/min**: a limit rises **+20% for the next 15-minute window** when usage averages **≥80%**, up to **20× base**, and falls by a factor of 1.5 at **≤50%**. The client reads `x-ratelimit-remaining-*` headers and shows headroom **live on the dashboard**.
-
-**2 · Sandboxes.** Every sandbox is its **own microVM, built to run untrusted code**, with Git-like branching: fork execution state at any checkpoint, explore in parallel, roll back instantly. The Contree SDK exposes this as **one content-addressed primitive**:
-
-```python
-# Two runs of the identical command from the identical parent return the
-# identical image UUID — no new execution, no new cost.
-same1 = await image.run(shell="echo same", disposable=False)
-same2 = await image.run(shell="echo same", disposable=False)
-assert same1.uuid == same2.uuid
-```
-
-- **Checkpoint-fork is the unit of state.** The green baseline `C0` is built **once** (clone, install, run the suite) and every candidate for every task forks from it. Dependency installation, usually the dominant cost of CI-like work, is paid **once per job**: with three candidates across a dozen tasks, **one install instead of thirty-six**.
-- **A task is tested with the work it depends on.** A candidate's fork gets the verified diffs of the task's dependencies, in plan order, before its own, so a breaking change can be tested once its consumers are updated. The planner orders a breaking change so that consumers come first.
-- **Failure is free because it is private.** A candidate that breaks the build breaks *its own fork*: no shared tree to corrupt, no cleanup, no interference between parallel attempts.
-
-> **Sandboxes made the parallel search *affordable*, not merely faster.** On ordinary containers you would have to either serialise the work (losing the parallelism the thesis depends on) or reinstall dependencies per candidate (losing the economics).
-
-Gates 3 and 4 are real `pytest` runs on real installed dependencies in an isolated microVM, so the accept decision is a **process exit code from a genuine test run**. Documented beta limits ([Sandboxes docs](https://docs.tokenfactory.nebius.com/sandboxes/operate/limits-retention-and-usage.md)): **50 simultaneous operations**; checkpoint images **retained 180 days**, after which *untagged and unreferenced* images may be deleted.
-
-| Component | Use |
-|---|---|
-| Token Factory OpenAI-compatible API | all inference (`openai` SDK, changed `base_url`) |
-| Nebius Sandboxes (`contree-sdk`) | baseline build, gates 3 and 4, strength audit |
-| Rate-limit headers | live budget headroom in `GET /jobs/{id}` and the dashboard |
-| Model registry (`GET /v1/models`) | model ids resolved at boot, so a typo fails in seconds, not mid-job |
-| NVIDIA Nemotron 3 Nano / Super / Ultra | candidates / repairs / planning |
-
-Engineering feedback on all of the above, **nine issues ranked by what they cost**, several checked against the installed SDK source rather than the docs, is in **[`docs/FEEDBACK.md`](docs/FEEDBACK.md)**.
-
----
-
-## What a run costs
-
-Principal ships a **default per-job budget of 2,000,000 tokens** (`token_budget_default` in [`principal/config.py`](principal/config.py)), enforced by a **reserve-and-refuse** manager: it refuses rather than truncates.
-
-Nebius's own price list sits behind the console login, so these rates are **third-party listings**; confirm them against `GET /v1/models?verbose=true` with your key before relying on them:
-
-| Tier | Input / 1M | Output / 1M | Source |
-|---|---:|---:|---|
-| Nano | $0.06 | $0.24 | third-party estimator listings, Oct 2026 |
-| Super | $0.30 | $0.90 | a reseller listing, **not** confirmed Nebius pricing |
-| Ultra | $1.00 | $3.00 | two third-party listings agree |
-
-- **Worst case**: every one of the 2,000,000 budgeted tokens billed as Ultra output is 2 × $3.00 = **$6.00**. The bound depends only on the *highest* listed rate.
-- **Measured case**: run 1 spent **17,822 tokens**, which at the highest Nano rate is **under half a cent** of model cost, plus **$0.0037** of sandbox cost reported by the platform. The VERIFIED hosted run cost $0.0116 of sandbox time.
-
-The interesting number is not the token cost. It is that **the cost of a wrong attempt fell to a cheap completion**, because it died in a private fork nobody reviews. Principal does not remove the reviewer; it changes the review from auditing forty edits for one mistake to sanity-checking a change that already passed a real suite. List prices and a handful of runs are not a customer case study, and **no production deployment has been measured.**
-
----
-
-## Where this sits in the market
-
-Two mature categories each cover part of the problem. Neither covers the middle.
-
-| | **Coding agents**<br>(Codex, Claude Code, Cursor, Devin) | **Deterministic mass refactoring**<br>([OpenRewrite](https://docs.openrewrite.org/) / [Moderne](https://moderne.ai/)) | **Principal** |
+| Run | Repository and goal | Outcome | What decided it |
 |---|---|---|---|
-| Handles a *novel*, bespoke refactor | yes | no, needs a pre-written recipe | **yes** |
-| Correctness signal | human review | AST transform correct by construction | **real test-suite exit code** |
-| Will it ship something unverified? | yes, that is what review is for | no | **no, it fails closed** |
-| Scales across many repositories | partially | **yes**, its whole design | one repository per job |
-| Measured ceiling on wide refactors | top of SWE Atlas: **59.05** | n/a, not a model | not measured on SWE Atlas; **races several attempts** |
+| **1** | weak-tests repository: clean up `pricing.calc_total` | **UNVERIFIED** | Both tasks verified and the tests pass, yet the strength audit caught **0 of 1** injected faults and `src/reports.py` reaches the target through `getattr`, which no test runs. Principal produced a change and **refused to call it verified**. |
+| **2** | same, model cache off | UNVERIFIED | Every candidate and repair failed; no change produced, repository untouched. The same job is not deterministic. |
+| **3** | `mini_repo`: make `create()`'s `ttl` keyword-only and update every call site | UNVERIFIED, `NoPR` | 2 of 6 tasks discarded, over the 30% cap |
+| **4** | `mini_repo`, after the diff-parser fix | UNVERIFIED | 5 of 7 verified, but the task that changes the definition of `create()` was discarded, so `ttl` was not keyword-only |
+| **5** | `mini_repo`, dependency-aware verification | UNVERIFIED, `NoPR` | 4 of 6 verified; one consumer discarded after a blank-line mismatch, so the definition's task failed red |
+| **6** | `mini_repo`, same goal, after the blank-line fix | **VERIFIED** | 6 of 6 tasks verified by a first-round Nano candidate. **9 of 9 call sites** changed, 0 unexpected files, both dynamic paths in `src/registry.py` exercised by tests. 7 of 9 injected faults detected (78%, floor 60%). **19,855 tokens.** |
+| **Hosted** | the `mini_repo` goal again, started from the public URL | **VERIFIED** | 6 of 6 tasks, 30,644 tokens, $0.0116 of sandbox cost, injected-fault score 78% |
 
-- **Coding agents** are general but unverified: they hand you the review problem.
-- **OpenRewrite / Moderne** is the serious incumbent (Moderne raised a **$30M Series B, led by Acrew Capital, on 11 Feb 2025**, per [TechCrunch](https://techcrunch.com/2025/02/11/moderne-raises-30m-to-solve-technical-debt-across-complex-codebases/)): deterministic transforms are exceptionally safe but **require someone to write the recipe first**.
-- **Principal takes the third position:** LLM generality for the diff, deterministic machinery for the decision. *The model proposes; a real test run in a real sandbox disposes.*
+- **The token ledger reconciles.** In runs 2 to 6, tokens charged equal tokens attributed to a role and model, with none unattributed: 26,711 · 58,409 · 69,748 · 56,261 · 19,855.
+- **The runs before the first VERIFIED result lost tasks for specific, fixable reasons.** A definition cannot pass tests while its callers are still on the old signature, so a task is now verified together with the diffs it depends on. A reply that wrote one blank line where the file had two was rejected, so hunk location tolerates blank lines when the exact context is absent. The fixture's own tests passed `ttl` positionally, so no correct change could pass them; they were changed, and that is stated in [`docs/RUNS.md`](docs/RUNS.md).
+
+**Benchmark** (`make eval`: three arms over two pinned tasks, 2026-10-22 after the fixes, one run per cell):
+
+| Arm | Verified | Unverified | Failed on merit | False accepts |
+|---|---:|---:|---:|---:|
+| **A** single shot, no gates | 1 | 0 | 1 | 0 of 1 checked |
+| **B** one candidate, gates on | 0 | 2 | 0 | — |
+| **C** full swarm | **1** | 1 | 0 | — |
+
+The only VERIFIED gated cell is arm C on `mini_repo`. On the weak-tests repository the swarm stopped at UNVERIFIED with an injected-fault score of 0.0 against a 0.6 floor, which is that fixture doing its job. Two tasks and one run per cell cannot rank the arms. The first pass before the fixes reached VERIFIED nowhere. Full tables, the five causes found and their measurements: [`docs/RUNS.md`](docs/RUNS.md).
 
 ---
 
@@ -576,15 +327,13 @@ In `.env` or the environment a tunable is its upper-case name (`MAX_REPAIRS=3`; 
 | `PRINCIPAL_INFERENCE_BASE` | `https://api.tokenfactory.nebius.com/v1/` | the OpenAI-compatible endpoint |
 | `PRINCIPAL_SANDBOX_BASE` | `https://api.tokenfactory.nebius.com/sandboxes/` | the Sandboxes endpoint |
 | `PRINCIPAL_BASE_IMAGE` | `python:3.11-slim` | the image baselines are built from. A tag is a moving target; pin by digest (`python@sha256:…`) when that matters (supply-chain risk in the [threat model](docs/THREAT_MODEL.md)) |
-| `PRINCIPAL_MODEL_NANO` · `_SUPER` · `_ULTRA` | the three ids in the table above | resolved against `GET /v1/models` at boot |
+| `PRINCIPAL_MODEL_NANO` · `_SUPER` · `_ULTRA` | the three ids in [How NVIDIA models and Nebius services are used](#how-nvidia-models-and-nebius-services-are-used) | resolved against `GET /v1/models` at boot |
 | `PRINCIPAL_PLANNER_TIER` | `ultra` | `super` or `ultra` |
 | `PRINCIPAL_FORCE_PROTOCOL` | unset | skip the boot probe and pin `schema`, `tools` or `text` |
 | `PRINCIPAL_MODEL_CACHE` | on | disk cache of model responses, keyed on the exact prompt. Turn it off for a measurement in which every call must reach the platform |
 | `PRINCIPAL_REQUIRE_LIVE` | off | refuse to start unless inference and Sandboxes both verify |
 | `PRINCIPAL_SLOW_MO_MS` | `0` | delay event emission so the fan-out is legible on video |
 | `PRINCIPAL_DB` · `_RUNS_DIR` · `_SNAPSHOTS_DIR` · `_CACHE_DIR` | `principal.db`, `runs/`, `snapshots/`, `.model_cache/` in the repository root | where state is written; the Dockerfile moves all four under `/app` |
-
----
 
 ## Running it
 
@@ -719,6 +468,250 @@ The Dockerfile is two-stage (a Node stage builds the dashboard, a Python stage s
 
 ---
 
+## Architecture
+
+### System context
+
+```mermaid
+flowchart LR
+    DEV["Developer"] -->|"goal + target symbol"| P(("Principal"))
+    P -->|"draft PR"| GH["GitHub"]
+    REV["Human reviewer"] -->|"approves, merges"| GH
+    P <-->|"chat completions"| TF["Token Factory<br/>inference<br/>(NVIDIA Nemotron 3)"]
+    P <-->|"checkpoint / fork / run"| SBX["Nebius<br/>Sandboxes<br/>(microVMs)"]
+    P -->|"clone at commit"| REPO[("Target repository")]
+    SBX -->|"test results,<br/>coverage"| P
+
+    style P fill:#2563eb,color:#fff,stroke:#1e40af
+    style SBX fill:#059669,color:#fff,stroke:#047857
+    style TF fill:#76b900,color:#000,stroke:#5a8f00
+```
+
+Principal never merges anything. **The reviewer is inside the trust boundary by design**: every guarantee here assumes a human approves before code lands.
+
+### Containers
+
+```mermaid
+flowchart TB
+    UI["Dashboard<br/>React + SSE"] --> API["HTTP API<br/>FastAPI + SSE"]
+    subgraph ORCH["Orchestrator process — one SQLite file, one Python process"]
+        API --> JOB["Job state machine"]
+        JOB --> SCHED["Scheduler<br/>semaphores, candidate race"]
+        SCHED --> AGENTS["Agents<br/>planner · coder · repairer<br/>characteriser · reporter"]
+        SCHED --> GATES["Gate pipeline<br/>scope · syntax · tests<br/>behaviour · security<br/>impact · strength"]
+        JOB --> PUB["Publisher<br/>the only GitHub credential"]
+        JOB --> STORE[("SQLite<br/>+ append-only event log")]
+    end
+    AGENTS --> MODELS["Model client<br/>budget · cache · probe"]
+    GATES --> SANDBOX["Sandbox client"]
+    MCP["code-graph MCP<br/>5 read-only tools"] --> STORE
+    MODELS --> TF2["Token Factory<br/>inference"]
+    SANDBOX --> SBX2["Nebius<br/>Sandboxes"]
+    PUB --> GH2["GitHub API"]
+
+    style JOB fill:#2563eb,color:#fff
+    style GATES fill:#dc2626,color:#fff
+    style SANDBOX fill:#059669,color:#fff
+    style SBX2 fill:#059669,color:#fff
+    style TF2 fill:#76b900,color:#000
+```
+
+**Dependencies point downward only**, enforced in CI by `import-linter` (`lint-imports`, **4 contracts**, defined in [`pyproject.toml`](pyproject.toml)):
+
+- **No model in the accept path**: `principal.gates` cannot import `principal.models` or `principal.agents`
+- **No web text in the accept path**: `principal.gates` cannot import `principal.grounding`
+- **Agents never touch the sandbox**: `principal.agents` cannot import `principal.sandbox` or `principal.publish`
+- **Layered architecture**: `api` → `orchestrator` → `gates | agents | publish` → `routines` → `sandbox | models | graph | grounding` → `db` → `config`; nothing imports upward
+
+The first rule is the architecture's central claim expressed as something a machine checks rather than a sentence in a README.
+
+### The verification pipeline
+
+```mermaid
+flowchart TD
+    G["goal + repo + target symbol"] --> ING
+
+    subgraph ING["1 · INGEST + BASELINE"]
+        direction TB
+        I1["clone, install, run the full suite"] --> I2["C0 — green baseline image<br/>+ per-test coverage map"]
+    end
+    ING -->|"suite already red"| ABORT1["Aborted"]
+    ING --> MAP
+
+    subgraph MAP["2 · MAP"]
+        direction TB
+        M1["tree-sitter: symbols, call edges,<br/>import edges, test edges"] --> M2["blast radius = reverse BFS<br/>depth 3, cap 40 files"]
+    end
+    MAP -->|"radius over cap"| ABORT2["Aborted<br/>raises, never truncates"]
+    MAP --> CHAR
+
+    CHAR["3 · CHARACTERISE<br/>only if the target is uncovered<br/>frozen tests that pass on C0"] -->|"no usable oracle"| NSN["NoSafetyNet"]
+    CHAR --> PLAN
+
+    PLAN["4 · PLAN — Nemotron 3 Ultra<br/>ordered tasks, one file each,<br/>dependency-aware waves"] --> EXEC
+
+    subgraph EXEC["5 · EXECUTE — per task"]
+        direction TB
+        E0["3 candidates — Nemotron 3 Nano<br/>temperatures 0.0 / 0.4 / 0.8"]
+        E0 --> EG1["gate 1: scope"]
+        EG1 --> EG2["gate 2: syntax"]
+        EG2 --> EG3["gate 3: local tests<br/>sandbox"]
+        EG3 -->|"first green"| WIN["winner — losers cancelled"]
+        EG3 -->|"all red"| REP["repair — Nemotron 3 Super<br/>bounded, stack trace only"]
+        REP --> EG3
+    end
+    EXEC -->|"more than 30% discarded"| NOPR1["NoPR"]
+    EXEC --> CLEAN["6 · CLEANUP<br/>imports and symbols the refactor<br/>itself orphaned — refactor-local only"]
+    CLEAN --> INTEG
+
+    subgraph INTEG["7 · INTEGRATE + JUDGE"]
+        direction TB
+        N1["all patches together<br/>full suite"] --> N2["API delta · coverage floor ·<br/>test-count invariant"]
+        N2 --> N3["security gate"]
+        N3 --> N4["blast-radius check ·<br/>strength audit"]
+        N4 --> N5["classify outcome"]
+    end
+    INTEG -->|"green, nothing definite wrong"| PR["Draft pull request<br/>+ evidence table"]
+    INTEG -->|"red, or a check found a defect"| NOPR2["NoPR report<br/>a success state"]
+
+    style ABORT1 fill:#dc2626,color:#fff
+    style ABORT2 fill:#dc2626,color:#fff
+    style NOPR1 fill:#d97706,color:#fff
+    style NOPR2 fill:#d97706,color:#fff
+    style NSN fill:#d97706,color:#fff
+    style PR fill:#059669,color:#fff
+    style WIN fill:#059669,color:#fff
+```
+
+### Job state machine
+
+The states below are the ones `principal/orchestrator/job.py` actually writes.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Ingesting
+    Ingesting --> Baselining
+    Baselining --> Mapping: suite green
+    Baselining --> Aborted: suite already red
+    Mapping --> Characterising
+    Mapping --> Aborted: blast radius over cap
+    Characterising --> Planning
+    Characterising --> NoSafetyNet: no usable oracle
+    Planning --> Executing: task list valid
+    Planning --> Aborted: plan unparseable
+    Executing --> CleanupPlanning: tasks settled
+    Executing --> NoPR: over 30% discarded
+    CleanupPlanning --> CleanupExecuting: orphans found
+    CleanupPlanning --> Integrating: none found
+    CleanupExecuting --> Integrating
+    Integrating --> Publishing: all gates pass
+    Integrating --> NoPR: integration red or a check failed
+    Publishing --> Done
+    Aborted --> [*]
+    NoSafetyNet --> [*]
+    NoPR --> [*]
+    Done --> [*]
+```
+
+`NoPR` and `NoSafetyNet` carry the same visual weight as `Done` throughout the dashboard, **on purpose**. They are correct results: the system did its job and declined to ship. `Aborted` is reserved for a run that *could not* proceed (red baseline, oversized radius, platform failure).
+
+## Design decisions worth reading the code for
+
+- **The blast radius raises; it does not truncate.** A reverse-edge BFS over call and import edges, **depth 3, capped at 40 files** (`principal/graph/radius.py`). Over the cap, Principal **aborts with `RADIUS_TOO_LARGE`** rather than silently working on the first 40, because a truncated radius produces a patch that **looks complete and is not**: the most dangerous failure this system could have.
+
+- **Unresolved call sites are reported, not hidden.** A dynamic dispatch like `registry[name](user)` cannot be proved to reach the target, so it is listed in the PR under *"what a human must check"*. [`graph/resolve.py`](principal/graph/resolve.py) separates a genuinely unresolvable dynamic call from `len()`: on the bundled fixture, the difference between noise and **exactly 2 real entries**, both in `src/registry.py`.
+
+- **Behaviour preservation beyond "tests pass".** A patch that deletes a function *and its tests* passes. So the public-API delta must match the plan's **declared** removals, **coverage may not fall**, and the **test count may not shrink**.
+
+- **Per-test coverage drives test selection.** The baseline runs `pytest --cov-context=test`, yielding a test→line map. Each fork runs only the tests that cover the lines it changed, which keeps gate 3 at **seconds rather than minutes**.
+
+- **Characterisation never lets a model write its own exam.** Where the target is uncovered, a Characteriser writes tests, but it **never sees the refactoring goal**, its tests must **pass against the unmodified baseline** or are discarded, they are **frozen** before refactoring starts, and a change verified *only* by generated tests is **reported as such**.
+
+- **The security gate is differential.** It scans the baseline and the result and fails only on what is **new**, so it is usable on legacy code full of pre-existing findings. Fingerprints exclude line numbers, since every refactor shifts them. Dependency and licence risk are closed *by construction*: gate 1 rejects any diff touching a manifest or lockfile.
+
+- **The event log is the product.** Every state change is an **append-only row**, streamed as SSE with `Last-Event-ID` resume, and every job writes a JSONL trace. A laptop that sleeps for ten seconds reconnects into a live view, and because the run id lives in the URL (`/app/?job=<id>`) a finished run is reconstructible from a link alone wherever the database persists (the free hosted tier does not keep it; see [Deploying the hosted demo](#deploying-the-hosted-demo)).
+
+- **Every safety claim has a fixture.** [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the threat matrix and residual risks. `tests/unit/test_adversarial_corpus.py` asserts the exact gate verdict for **12 named adversarial inputs**, including `correct.diff` and `miscounted_header.diff`, which **must pass**, because a gate suite that only proves things get rejected is satisfied by a gate that rejects everything. `miscounted_ends_on_change.diff` pins the one place the diff parser repairs a model's `@@` line counts (a hunk that ends on a context line) against the place it must not (a hunk that may have been cut short).
+
+- **Live is the default; stand-ins are labelled, never hidden.** Verification and measurement run on the real Nemotron models and the real Nebius sandbox. The in-process `FakeSandbox` (`--fake-sandbox`) is for tests only and prints `mode: DEMO — in-process FakeSandbox, results are NOT live-verified`. The same label is stored on the job, shown as a **NOT LIVE** badge in the console, and written at the top of every evidence bundle and benchmark report.
+
+- **Every model call is itemised.** Each call writes a `model.call` event naming the **role**, the **tier and model id**, and the prompt / completion / billed tokens. The evidence bundle sums them per role and checks that the total equals the job's `tokens_spent`; tokens it cannot attribute are reported as a number, not rounded away.
+
+- **The dependency rule is enforced by the right command.** `lint-imports` evaluates the contracts; `python -m importlinter.cli lint` exits 0 without evaluating any. That bug was caught during development, and it is exactly what makes a safety claim decorative.
+
+## How NVIDIA models and Nebius services are used
+
+### NVIDIA Nemotron 3: three tiers, three different jobs
+
+Nemotron 3 is a **hybrid Mamba-Transformer Mixture-of-Experts** family. For Nano 30B-A3B, NVIDIA's model card describes a **52-layer** stack (**23 Mamba-2, 23 MoE and 6 attention layers**) with **3.5B of 30B parameters active** per token ([model card](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b.md); [paper](https://arxiv.org/pdf/2512.20856)).
+
+That matters here: **wide fan-out is only economical if each candidate is cheap**, and a candidate is a long prompt: a blast radius, every call site, surrounding context. A dense model at the same accuracy would cost far more per candidate and "generate three, race them" would collapse.
+
+| Tier | Model id | Scale | What it does | Why this tier |
+|---|---|---|---|---|
+| **Nano** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | 30B total · 3.5B active | generates candidate patches; summarises failing test output | the highest-volume call (3 per task, dozens per job) and the one where being wrong is cheapest: gate 3 catches it |
+| **Super** | `nvidia/nemotron-3-super-120b-a12b` | 120B total · 12B active | **repairs** a candidate that failed its tests | narrow and well-specified, but needs real reasoning about *why* a test failed, without Ultra's latency inside a retry loop |
+| **Ultra** | `nvidia/Nemotron-3-Ultra-550b-a55b` | 550B total · 55B active | **plans**: decomposes the goal into an ordered, dependency-aware task list | runs **once per job** and every downstream decision inherits its mistakes, so it is the one place to pay for the best long-horizon reasoning |
+
+Every model call is tagged with its tier and its token cost, so **the routing is measurable rather than asserted**. The planner tier is configurable (`PRINCIPAL_PLANNER_TIER=super|ultra`, default **ultra**) so Super against Ultra can be measured with `bench/` rather than assumed.
+
+#### The `reasoning_content` trap, and the boot-time capability probe
+
+Reasoning models behind an OpenAI-compatible API can return output in `reasoning_content` and leave `content` **empty**. Code that trusts `choices[0].message.content` gets an empty string, which is not an error but a *successful* call that silently produces nothing, and the failure surfaces three layers away as "the agent generated no patch."
+
+Principal does not guess. At boot it runs a **3×3 capability probe**, each of the three models against each of the three output protocols (JSON schema, tool calls, fenced text), **pins each model to the protocol it demonstrated**, and prints the table. `PRINCIPAL_FORCE_PROTOCOL` pins one protocol for everything. `PRINCIPAL_REQUIRE_LIVE=1` makes startup **fail** unless inference *and* Sandboxes both verify, so a live deployment cannot silently fall back to the credential-less demo; `/healthz` reports `inference_verified`, `sandbox_verified` and `live`.
+
+### Nebius Token Factory: Sandboxes are the whole design
+
+**1 · Inference.** The OpenAI-compatible endpoint at `https://api.tokenfactory.nebius.com/v1/`, through the official `openai` SDK with a different `base_url` and **no custom HTTP client**. Per Nebius's [rate-limit documentation](https://docs.tokenfactory.nebius.com/ai-models-inference/rate-limits.md), the console holds the real defaults, and the page's scaling example starts from **60 requests/min and 400,000 tokens/min**: a limit rises **+20% for the next 15-minute window** when usage averages **≥80%**, up to **20× base**, and falls by a factor of 1.5 at **≤50%**. The client reads `x-ratelimit-remaining-*` headers and shows headroom **live on the dashboard**.
+
+**2 · Sandboxes.** Every sandbox is its **own microVM, built to run untrusted code**, with Git-like branching: fork execution state at any checkpoint, explore in parallel, roll back instantly. The Contree SDK exposes this as **one content-addressed primitive**:
+
+```python
+# Two runs of the identical command from the identical parent return the
+# identical image UUID — no new execution, no new cost.
+same1 = await image.run(shell="echo same", disposable=False)
+same2 = await image.run(shell="echo same", disposable=False)
+assert same1.uuid == same2.uuid
+```
+
+- **Checkpoint-fork is the unit of state.** The green baseline `C0` is built **once** (clone, install, run the suite) and every candidate for every task forks from it. Dependency installation, usually the dominant cost of CI-like work, is paid **once per job**: with three candidates across a dozen tasks, **one install instead of thirty-six**.
+- **A task is tested with the work it depends on.** A candidate's fork gets the verified diffs of the task's dependencies, in plan order, before its own, so a breaking change can be tested once its consumers are updated. The planner orders a breaking change so that consumers come first.
+- **Failure is free because it is private.** A candidate that breaks the build breaks *its own fork*: no shared tree to corrupt, no cleanup, no interference between parallel attempts.
+
+> **Sandboxes made the parallel search *affordable*, not merely faster.** On ordinary containers you would have to either serialise the work (losing the parallelism the thesis depends on) or reinstall dependencies per candidate (losing the economics).
+
+Gates 3 and 4 are real `pytest` runs on real installed dependencies in an isolated microVM, so the accept decision is a **process exit code from a genuine test run**. Documented beta limits ([Sandboxes docs](https://docs.tokenfactory.nebius.com/sandboxes/operate/limits-retention-and-usage.md)): **50 simultaneous operations**; checkpoint images **retained 180 days**, after which *untagged and unreferenced* images may be deleted.
+
+| Component | Use |
+|---|---|
+| Token Factory OpenAI-compatible API | all inference (`openai` SDK, changed `base_url`) |
+| Nebius Sandboxes (`contree-sdk`) | baseline build, gates 3 and 4, strength audit |
+| Rate-limit headers | live budget headroom in `GET /jobs/{id}` and the dashboard |
+| Model registry (`GET /v1/models`) | model ids resolved at boot, so a typo fails in seconds, not mid-job |
+| NVIDIA Nemotron 3 Nano / Super / Ultra | candidates / repairs / planning |
+
+Engineering feedback on all of the above, **nine issues ranked by what they cost**, several checked against the installed SDK source rather than the docs, is in **[`docs/FEEDBACK.md`](docs/FEEDBACK.md)**.
+
+## What a run costs
+
+Principal ships a **default per-job budget of 2,000,000 tokens** (`token_budget_default` in [`principal/config.py`](principal/config.py)), enforced by a **reserve-and-refuse** manager: it refuses rather than truncates.
+
+Nebius's own price list sits behind the console login, so these rates are **third-party listings**; confirm them against `GET /v1/models?verbose=true` with your key before relying on them:
+
+| Tier | Input / 1M | Output / 1M | Source |
+|---|---:|---:|---|
+| Nano | $0.06 | $0.24 | third-party estimator listings, Oct 2026 |
+| Super | $0.30 | $0.90 | a reseller listing, **not** confirmed Nebius pricing |
+| Ultra | $1.00 | $3.00 | two third-party listings agree |
+
+- **Worst case**: every one of the 2,000,000 budgeted tokens billed as Ultra output is 2 × $3.00 = **$6.00**. The bound depends only on the *highest* listed rate.
+- **Measured case**: run 1 spent **17,822 tokens**, which at the highest Nano rate is **under half a cent** of model cost, plus **$0.0037** of sandbox cost reported by the platform. The VERIFIED hosted run cost $0.0116 of sandbox time.
+
+The interesting number is not the token cost. It is that **the cost of a wrong attempt fell to a cheap completion**, because it died in a private fork nobody reviews. Principal does not remove the reviewer; it changes the review from auditing forty edits for one mistake to sanity-checking a change that already passed a real suite. List prices and a handful of runs are not a customer case study, and **no production deployment has been measured.**
+
+---
+
 ## Repository structure
 
 Abridged: the packages and the files that carry the design. `git ls-files` is the complete list.
@@ -775,8 +768,6 @@ AMTDRS/
 └── LICENSE · NOTICE                  Apache-2.0, verbatim · third-party licenses and trademark attribution
 ```
 
----
-
 ## Safety
 
 - **Draft PRs only.** A human merges.
@@ -792,7 +783,7 @@ AMTDRS/
 - **No production deployment has been measured.** The cost argument is arithmetic from third-party list prices plus a handful of real runs.
 - **Not benchmarked on SWE Atlas.** The leaderboard is cited as evidence the problem is open, not as a result for Principal. `bench/tasks.json` pins **two tasks, not a suite**.
 - **Six live end-to-end runs, one of them VERIFIED, are six data points, not a success rate.** Three later runs on the `mini_repo` task also ended VERIFIED (arm C of the second benchmark, one through a local API server, one through the hosted URL); they are one task and not a rate either.
-- **Nebius prices are unconfirmed.** They sit behind the console login; the table above is third-party data.
+- **Nebius prices are unconfirmed.** They sit behind the console login; the table in [What a run costs](#what-a-run-costs) is third-party data.
 - **Web grounding has run live for planning only.** A `--dry-run` job on `psf/requests` recorded two searches with Tavily `request_id`s. Four full jobs on the same repository with grounding on all ended `NoPR` with nothing shipped: most were lost to the coder models' diffs not applying, and in the fourth one of two tasks verified. The repair-stage search has only been tested against a mock transport, and whether the references improve a plan or a repair has not been measured. Detail, job ids and the parser fix that came out of it: [`docs/RUNS.md`](docs/RUNS.md).
 - **Gate 3 (test execution) is Python-only.** The code graph also parses TypeScript, but test execution stops at Python.
 - An **untested private symbol can still be deleted**, and **sandbox network egress is not yet disableable** through the platform SDK.

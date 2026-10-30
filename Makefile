@@ -29,8 +29,6 @@ fmt:  ## autoformat and autofix
 	$(PY) -m ruff check --fix principal mcp_code_graph bench tests spikes
 
 arch:  ## the dependency rule: gates must not import models
-	# `python -m importlinter.cli lint` exits 0 without evaluating anything.
-	# Use the console script, which is the only invocation that actually reports.
 	lint-imports
 
 ci: lint test  ## everything CI runs
